@@ -16,3 +16,7 @@
 ## Notes for Windows cmd.exe curl
 - Use `--http1.1` and always specify method via `-X`.
 - Prefer `--data-binary "@file.json"` instead of inline JSON.
+
+
+## /finalize input
+Accepts either `{bus_id,q_state}` or a `/dequeue` snapshot `{..., row:{bus_id,q_state,...}}`.
