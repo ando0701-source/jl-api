@@ -1,23 +1,18 @@
-# jl-api (Workers + D1) TypeScript entry
+# jl-api (D1) TypeScript patch (2PLT_BUS/v1)
 
-This patch assumes your `wrangler.json` already points to:
-
-- "main": "src/index.ts"
-- D1 binding: "DB"
+## What this patch does
+- D1 table of truth: `bus_messages.bus_json` stores the full `2PLT_BUS/v1` envelope.
+- Validation policy: **strict only on required fields** (for DB extraction); preserve unknown fields.
+- Unified POST JSON parsing (`/enqueue`, `/finalize`).
+- Top-level try/catch to avoid abrupt failures (helps reduce 'connection reset' symptoms).
+- Optional stealth mode: set `STEALTH_404="1"` to return 404 for auth failures.
 
 ## Endpoints
+- GET `/ping` -> `pong`
+- POST `/enqueue` -> accepts `2PLT_BUS/v1` JSON, idempotent by `bus_id`
+- GET `/dequeue?owner_id=...(&claimed_by=...)` -> claims a pending message
+- POST `/finalize` body `{bus_id, q_state:1|9}`
 
-All endpoints require `X-API-Key` and will fail-closed if `API_KEY` is not set.
-
-- GET /ping
-- POST /enqueue  (body: 2PLT_BUS/v1 JSON object)
-- GET /dequeue?owner_id=...(&claimed_by=...)
-- POST /finalize (body: {bus_id, q_state: 1|9})
-
-## Notes
-
-- The DB record-of-truth is `bus_json` (full 2PLT_BUS/v1 JSON string).
-- Enqueue normalizes: q_state=0, claimed_by/claimed_at/done_at = null.
-- Request validation is **strict only for DB-required keys**; any unknown/extra keys are preserved in `bus_json`.
-  - For REQUEST: `message.state/out_state` are ignored (deleted) to satisfy DB CHECK constraints.
-  - For RESPONSE: `message.state` is required; if `out_state` is missing it is auto-filled with `state`.
+## Notes for Windows cmd.exe curl
+- Use `--http1.1` and always specify method via `-X`.
+- Prefer `--data-binary "@file.json"` instead of inline JSON.

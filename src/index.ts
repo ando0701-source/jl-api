@@ -1,395 +1,476 @@
 // src/index.ts
-// Cloudflare Workers (module syntax) + D1 (SQLite)
-// Storage unit ("record of truth"): 2PLT_BUS/v1 envelope serialized as JSON (bus_json).
+// Cloudflare Workers (TypeScript) + D1 (SQLite)
+// Storage unit of truth: 2PLT_BUS/v1 (bus_json)
+// Policy: validate only required fields; preserve unknown fields in bus_json.
+// Optional stealth mode: set env.STEALTH_404="1" to return 404 for auth failures.
 
-type MsgType = "REQUEST" | "RESPONSE";
-type InState = "NUL" | "PROPOSAL" | "COMMIT" | "UNRESOLVED" | "ABEND";
-type OutState = "PROPOSAL" | "COMMIT" | "UNRESOLVED" | "ABEND";
-
-type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
-
-interface TwoPltMessageV1 {
-  schema_id: "2PLT_MESSAGE/v1";
-  msg_type: MsgType;
-  op_id: string;
-
-  // flow identity
-  flow: {
-    owner_id: string;
-    lane_id: string;
-  };
-
-  request_id: string;
-
-  // state machine
-  in_state: InState;
-  state?: OutState;      // response only
-  out_state?: OutState;  // response only
-
-  // other fields may exist; keep permissive
-  [k: string]: JsonValue;
-}
-
-interface TwoPltBusV1 {
-  schema_id: "2PLT_BUS/v1";
-  bus_id: string;
-  bus_ts: number; // epoch seconds (preferred)
-
-  // q_state is DB/queue specific. We'll normalize to 0 at enqueue time.
-  q_state?: number;
-
-  routing: {
-    from_owner_id: string;
-    to_owner_id: string;
-    [k: string]: JsonValue;
-  };
-
-  // claim/done metadata may exist, but DB controls these for queue ops
-  claimed_by?: string | null;
-  claimed_at?: number | null;
-  done_at?: number | null;
-
-  message: TwoPltMessageV1;
-
-  [k: string]: JsonValue;
-}
-
-interface Env {
+export interface Env {
   DB: D1Database;
   API_KEY?: string;
+  STEALTH_404?: string; // "1" => unauthorized -> 404
 }
 
-class BadRequestError extends Error {
-  status = 400 as const;
+type JsonValue = any;
+
+class HttpError extends Error {
+  status: number;
+  code: string;
+  details?: unknown;
+  constructor(status: number, code: string, message: string, details?: unknown) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
 }
 
-function jsonResponse(obj: unknown, status = 200, extraHeaders?: Record<string, string>) {
-  const headers = new Headers({
-    "Content-Type": "application/json; charset=utf-8",
-    ...extraHeaders,
-  });
-  return new Response(JSON.stringify(obj), { status, headers });
-}
-
-function textResponse(text: string, status = 200, extraHeaders?: Record<string, string>) {
-  const headers = new Headers({ "Content-Type": "text/plain; charset=utf-8", ...extraHeaders });
-  return new Response(text, { status, headers });
-}
-
-function corsHeaders() {
+function corsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,X-API-Key",
+    "Access-Control-Max-Age": "86400",
   };
 }
 
-function requireApiKey(request: Request, env: Env): Response | null {
-  const key = request.headers.get("X-API-Key") || "";
-  // fail-closed: if env.API_KEY is missing => unauthorized
-  if (!env.API_KEY || key !== env.API_KEY) {
-    return textResponse("unauthorized", 401, corsHeaders());
-  }
-  return null;
+function jsonResponse(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...corsHeaders(),
+      ...extraHeaders,
+    },
+  });
 }
 
-function toEpochSecondsMaybe(ts: unknown): number | null {
+function textResponse(body: string, status = 200, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(body, {
+    status,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      ...corsHeaders(),
+      ...extraHeaders,
+    },
+  });
+}
+
+function nowEpochSec(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+function stripUtf8Bom(s: string): string {
+  // UTF-8 BOM: \uFEFF
+  return s.length > 0 && s.charCodeAt(0) === 0xfeff ? s.slice(1) : s;
+}
+
+async function readJson(req: Request, maxBytes = 1024 * 1024): Promise<JsonValue> {
+  const text = stripUtf8Bom(await req.text());
+  if (!text) throw new HttpError(400, "empty_body", "Request body is empty");
+  if (text.length > maxBytes) throw new HttpError(413, "body_too_large", "Request body is too large", { maxBytes });
+
+  // Normal JSON
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    // In some Windows/cmd.exe cases, users accidentally send a JSON string like "{\"a\":1}"
+    // We *optionally* accept that by a single unwrapping attempt.
+    try {
+      const v = JSON.parse(text.replace(/\r\n/g, "\n"));
+      if (typeof v === "string") {
+        return JSON.parse(v);
+      }
+    } catch (_) {
+      // ignore
+    }
+    throw new HttpError(400, "invalid_json", "Request body is not valid JSON");
+  }
+}
+
+function getPath(obj: any, path: string): any {
+  const parts = path.split(".");
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null || typeof cur !== "object" || !(p in cur)) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function requireFields(obj: any, paths: string[]): void {
+  const missing: string[] = [];
+  for (const p of paths) {
+    const v = getPath(obj, p);
+    if (v === undefined || v === null || v === "") missing.push(p);
+  }
+  if (missing.length) {
+    throw new HttpError(400, "missing_fields", "Missing required fields", { missing });
+  }
+}
+
+function normalizeBusTs(busTs: unknown): number {
   // Accept:
-  // - number (seconds or milliseconds)
+  // - epoch seconds (number)
+  // - epoch milliseconds (number, >= 1e12)
   // - numeric string
   // - ISO-8601 string
-  if (typeof ts === "number" && Number.isFinite(ts)) {
-    // If someone accidentally provides milliseconds, convert.
-    if (ts > 1e12) return Math.floor(ts / 1000);
-    return Math.floor(ts);
+  if (typeof busTs === "number" && Number.isFinite(busTs)) {
+    if (busTs >= 1e12) return Math.floor(busTs / 1000);
+    return Math.floor(busTs);
   }
-
-  if (typeof ts === "string") {
-    const s = ts.trim();
-    if (!s) return null;
-
-    // numeric string
-    if (/^\d+(\.\d+)?$/.test(s)) {
-      const n = Number(s);
-      if (!Number.isFinite(n)) return null;
-      if (n > 1e12) return Math.floor(n / 1000);
+  if (typeof busTs === "string") {
+    const t = busTs.trim();
+    if (!t) throw new HttpError(400, "invalid_bus_ts", "bus_ts is empty");
+    if (/^\d+$/.test(t)) {
+      const n = Number(t);
+      if (!Number.isFinite(n)) throw new HttpError(400, "invalid_bus_ts", "bus_ts is not a valid number");
+      if (n >= 1e12) return Math.floor(n / 1000);
       return Math.floor(n);
     }
-
-    // ISO-8601 (or any Date.parse-able) string
-    const ms = Date.parse(s);
-    if (!Number.isFinite(ms)) return null;
+    const ms = Date.parse(t);
+    if (!Number.isFinite(ms)) throw new HttpError(400, "invalid_bus_ts", "bus_ts is not a valid ISO-8601 datetime");
     return Math.floor(ms / 1000);
   }
-
-  return null;
+  throw new HttpError(400, "invalid_bus_ts", "bus_ts must be number or string");
 }
 
-function isNonEmptyString(x: unknown): x is string {
-  return typeof x === "string" && x.trim().length > 0;
-}
-
-function isInState(x: unknown): x is InState {
-  return x === "NUL" || x === "PROPOSAL" || x === "COMMIT" || x === "UNRESOLVED" || x === "ABEND";
-}
-
-function isOutState(x: unknown): x is OutState {
-  return x === "PROPOSAL" || x === "COMMIT" || x === "UNRESOLVED" || x === "ABEND";
-}
-
-function normalizeBusV1Loose(x: any): { bus: TwoPltBusV1; bus_ts: number } {
-  // Policy: "strict only on required fields".
-  // - Validate the DB-required keys.
-  // - Allow and preserve unknown keys at any depth.
-  // - Sanitize a few fields to satisfy DB CHECK constraints.
-
-  if (!x || typeof x !== "object") throw new BadRequestError("body must be a JSON object");
-
-  // required
-  if (x.schema_id !== "2PLT_BUS/v1") throw new BadRequestError("schema_id must be '2PLT_BUS/v1'");
-  if (!isNonEmptyString(x.bus_id)) throw new BadRequestError("bus_id is required (non-empty string)");
-
-  const bus_ts = toEpochSecondsMaybe(x.bus_ts);
-  if (bus_ts === null) throw new BadRequestError("bus_ts is required (epoch seconds number/string or ISO-8601 string)");
-
-  if (!x.routing || typeof x.routing !== "object") throw new BadRequestError("routing is required (object)");
-  if (!isNonEmptyString(x.routing.from_owner_id)) throw new BadRequestError("routing.from_owner_id is required");
-  if (!isNonEmptyString(x.routing.to_owner_id)) throw new BadRequestError("routing.to_owner_id is required");
-
-  if (!x.message || typeof x.message !== "object") throw new BadRequestError("message is required (object)");
-  if (x.message.schema_id !== "2PLT_MESSAGE/v1") throw new BadRequestError("message.schema_id must be '2PLT_MESSAGE/v1'");
-  if (x.message.msg_type !== "REQUEST" && x.message.msg_type !== "RESPONSE") {
-    throw new BadRequestError("message.msg_type must be REQUEST or RESPONSE");
+function authOrStealth404(req: Request, env: Env): void {
+  const apiKey = env.API_KEY;
+  const given = req.headers.get("X-API-Key");
+  const ok = !!apiKey && !!given && given === apiKey;
+  if (!ok) {
+    if (env.STEALTH_404 === "1") {
+      throw new HttpError(404, "not_found", "Not Found");
+    }
+    throw new HttpError(401, "unauthorized", "Unauthorized");
   }
-  if (!isNonEmptyString(x.message.op_id)) throw new BadRequestError("message.op_id is required");
-  if (!x.message.flow || typeof x.message.flow !== "object") throw new BadRequestError("message.flow is required (object)");
-  if (!isNonEmptyString(x.message.flow.owner_id)) throw new BadRequestError("message.flow.owner_id is required");
-  if (!isNonEmptyString(x.message.flow.lane_id)) throw new BadRequestError("message.flow.lane_id is required");
-  if (!isNonEmptyString(x.message.request_id)) throw new BadRequestError("message.request_id is required");
-  if (!isInState(x.message.in_state)) throw new BadRequestError("message.in_state must be one of NUL|PROPOSAL|COMMIT|UNRESOLVED|ABEND");
+}
 
-  // Sanitize to satisfy DB CHECK constraints:
-  // - REQUEST must have state/out_state NULL
-  // - RESPONSE must have state and out_state, and out_state == state
-  if (x.message.msg_type === "REQUEST") {
-    // allow caller to send extra fields, but DB requires NULL
-    delete x.message.state;
-    delete x.message.out_state;
+function isKnownRoute(pathname: string): boolean {
+  return pathname === "/ping" || pathname === "/enqueue" || pathname === "/dequeue" || pathname === "/finalize";
+}
+
+function validateBusLoose(bus: any): {
+  schema_id: string;
+  bus_id: string;
+  bus_ts: number;
+  from_owner_id: string;
+  to_owner_id: string;
+  message_schema_id: string;
+  msg_type: "REQUEST" | "RESPONSE";
+  op_id: string;
+  flow_owner_id: string;
+  lane_id: string;
+  request_id: string;
+  in_state: string;
+  state: string | null;
+  out_state: string | null;
+  bus_json: string;
+} {
+  if (bus == null || typeof bus !== "object") {
+    throw new HttpError(400, "invalid_body", "Body must be a JSON object");
+  }
+
+  // Required for DB extraction
+  requireFields(bus, [
+    "schema_id",
+    "bus_id",
+    "bus_ts",
+    "routing.from_owner_id",
+    "routing.to_owner_id",
+    "message.schema_id",
+    "message.msg_type",
+    "message.op_id",
+    "message.flow.owner_id",
+    "message.flow.lane_id",
+    "message.request_id",
+    "message.in_state",
+  ]);
+
+  const schema_id = String(bus.schema_id);
+  if (schema_id !== "2PLT_BUS/v1") throw new HttpError(400, "invalid_schema_id", "schema_id must be 2PLT_BUS/v1");
+
+  const bus_id = String(bus.bus_id);
+  const bus_ts = normalizeBusTs(bus.bus_ts);
+
+  const from_owner_id = String(bus.routing.from_owner_id);
+  const to_owner_id = String(bus.routing.to_owner_id);
+
+  const message_schema_id = String(bus.message.schema_id);
+  if (message_schema_id !== "2PLT_MESSAGE/v1") {
+    throw new HttpError(400, "invalid_message_schema_id", "message.schema_id must be 2PLT_MESSAGE/v1");
+  }
+
+  const msg_type_raw = String(bus.message.msg_type);
+  if (msg_type_raw !== "REQUEST" && msg_type_raw !== "RESPONSE") {
+    throw new HttpError(400, "invalid_msg_type", "message.msg_type must be REQUEST or RESPONSE");
+  }
+  const msg_type = msg_type_raw as "REQUEST" | "RESPONSE";
+
+  const op_id = String(bus.message.op_id);
+  const flow_owner_id = String(bus.message.flow.owner_id);
+  const lane_id = String(bus.message.flow.lane_id);
+  const request_id = String(bus.message.request_id);
+  const in_state = String(bus.message.in_state);
+
+  // Normalize response-only fields for DB constraints
+  let state: string | null = null;
+  let out_state: string | null = null;
+
+  if (msg_type === "REQUEST") {
+    // Enforce DB CHECK: state/out_state must be NULL for REQUEST
+    if (bus.message.state != null) delete bus.message.state;
+    if (bus.message.out_state != null) delete bus.message.out_state;
+    state = null;
+    out_state = null;
+
+    // Optional minimal consistency: request's to_owner should match flow.owner
+    // (You can relax this later if you want.)
+    if (to_owner_id !== flow_owner_id) {
+      throw new HttpError(400, "routing_flow_mismatch", "routing.to_owner_id must match message.flow.owner_id for REQUEST", {
+        to_owner_id,
+        flow_owner_id,
+      });
+    }
   } else {
-    if (!isOutState(x.message.state)) throw new BadRequestError("RESPONSE requires message.state (PROPOSAL|COMMIT|UNRESOLVED|ABEND)");
-    // If out_state is missing, auto-fill; if present but mismatched, reject.
-    if (x.message.out_state == null) {
-      x.message.out_state = x.message.state;
+    // RESPONSE: state required, out_state must equal state per DB check.
+    requireFields(bus, ["message.state"]);
+    state = String(bus.message.state);
+    if (bus.message.out_state == null) {
+      bus.message.out_state = state;
     }
-    if (!isOutState(x.message.out_state)) throw new BadRequestError("RESPONSE requires message.out_state (PROPOSAL|COMMIT|UNRESOLVED|ABEND)");
-    if (x.message.out_state !== x.message.state) {
-      throw new BadRequestError("RESPONSE requires message.out_state == message.state");
+    out_state = String(bus.message.out_state);
+    if (out_state !== state) {
+      throw new HttpError(400, "out_state_mismatch", "message.out_state must equal message.state for RESPONSE", {
+        state,
+        out_state,
+      });
     }
   }
 
-  // Normalize bus_ts
-  x.bus_ts = bus_ts;
+  // Preserve unknown fields in bus_json (after normalization)
+  const bus_json = JSON.stringify(bus);
 
-  return { bus: x as TwoPltBusV1, bus_ts };
+  return {
+    schema_id,
+    bus_id,
+    bus_ts,
+    from_owner_id,
+    to_owner_id,
+    message_schema_id,
+    msg_type,
+    op_id,
+    flow_owner_id,
+    lane_id,
+    request_id,
+    in_state,
+    state,
+    out_state,
+    bus_json,
+  };
 }
 
-async function readJsonBody(request: Request): Promise<any> {
-  const raw = await request.text();
-  if (!raw || !raw.trim()) throw new Error("empty body");
-  return JSON.parse(raw);
+async function handleEnqueue(req: Request, env: Env): Promise<Response> {
+  const bus = await readJson(req);
+  const x = validateBusLoose(bus);
+
+  // Force enqueue-time queue fields
+  const q_state = 0;
+  const claimed_by = null;
+  const claimed_at = null;
+  const done_at = null;
+
+  const stmt = env.DB.prepare(
+    `INSERT OR IGNORE INTO bus_messages(
+      schema_id,bus_id,bus_ts,q_state,
+      from_owner_id,to_owner_id,
+      claimed_by,claimed_at,done_at,
+      message_schema_id,msg_type,op_id,
+      flow_owner_id,lane_id,request_id,
+      in_state,state,out_state,
+      bus_json
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(
+    x.schema_id, x.bus_id, x.bus_ts, q_state,
+    x.from_owner_id, x.to_owner_id,
+    claimed_by, claimed_at, done_at,
+    x.message_schema_id, x.msg_type, x.op_id,
+    x.flow_owner_id, x.lane_id, x.request_id,
+    x.in_state, x.state, x.out_state,
+    x.bus_json
+  );
+
+  const r = await stmt.run();
+  const duplicate = (r.meta?.changes ?? 0) === 0;
+
+  return jsonResponse({
+    ok: true,
+    bus_id: x.bus_id,
+    duplicate,
+    bus_ts: x.bus_ts,
+    q_state,
+  });
 }
 
-function getChanges(result: any): number {
-  // D1 returns { meta: { changes, last_row_id, ... } }
-  const changes = result?.meta?.changes;
-  return typeof changes === "number" ? changes : 0;
+async function handleDequeue(req: Request, env: Env): Promise<Response> {
+  const url = new URL(req.url);
+  const ownerId = url.searchParams.get("owner_id");
+  if (!ownerId) throw new HttpError(400, "missing_owner_id", "owner_id is required");
+
+  const claimedBy = url.searchParams.get("claimed_by") || ownerId;
+  const now = nowEpochSec();
+
+  // Try single-statement claim+return first (SQLite RETURNING)
+  try {
+    const row = await env.DB.prepare(
+      `UPDATE bus_messages
+       SET claimed_by = ?, claimed_at = ?
+       WHERE bus_id = (
+         SELECT bus_id FROM bus_messages
+         WHERE q_state = 0 AND to_owner_id = ? AND claimed_by IS NULL
+         ORDER BY bus_ts ASC, inserted_at ASC
+         LIMIT 1
+       )
+       AND claimed_by IS NULL
+       RETURNING bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,
+                 message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,in_state,state,out_state,bus_json,inserted_at`
+    ).bind(claimedBy, now, ownerId).first();
+
+    if (!row) return jsonResponse({ ok: true, found: false });
+
+    // row.bus_json is full bus
+    return jsonResponse({
+      ok: true,
+      found: true,
+      row,
+      bus: JSON.parse(String((row as any).bus_json)),
+    });
+  } catch (e) {
+    // Fallback: 2-step claim (select -> update -> reselect), with small retry for contention.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const picked = await env.DB.prepare(
+        `SELECT bus_id FROM bus_messages
+         WHERE q_state = 0 AND to_owner_id = ? AND claimed_by IS NULL
+         ORDER BY bus_ts ASC, inserted_at ASC
+         LIMIT 1`
+      ).bind(ownerId).first();
+
+      if (!picked) return jsonResponse({ ok: true, found: false });
+
+      const busId = String((picked as any).bus_id);
+
+      const upd = await env.DB.prepare(
+        `UPDATE bus_messages
+         SET claimed_by = ?, claimed_at = ?
+         WHERE bus_id = ? AND claimed_by IS NULL`
+      ).bind(claimedBy, now, busId).run();
+
+      if ((upd.meta?.changes ?? 0) === 0) continue; // lost race; retry
+
+      const row = await env.DB.prepare(
+        `SELECT bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,
+                message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,in_state,state,out_state,bus_json,inserted_at
+         FROM bus_messages
+         WHERE bus_id = ?`
+      ).bind(busId).first();
+
+      if (!row) throw new HttpError(500, "inconsistent_state", "Claimed row not found after update");
+
+      return jsonResponse({
+        ok: true,
+        found: true,
+        row,
+        bus: JSON.parse(String((row as any).bus_json)),
+      });
+    }
+    return jsonResponse({ ok: true, found: false });
+  }
+}
+
+async function handleFinalize(req: Request, env: Env): Promise<Response> {
+  const body = await readJson(req);
+  if (body == null || typeof body !== "object") throw new HttpError(400, "invalid_body", "Body must be a JSON object");
+
+  requireFields(body, ["bus_id", "q_state"]);
+  const busId = String((body as any).bus_id);
+
+  const q = Number((body as any).q_state);
+  if (![1, 9].includes(q)) throw new HttpError(400, "invalid_q_state", "q_state must be 1 (DONE) or 9 (DEAD)");
+
+  const doneAt = nowEpochSec();
+
+  const r = await env.DB.prepare(
+    `UPDATE bus_messages
+     SET q_state = ?, done_at = ?
+     WHERE bus_id = ?`
+  ).bind(q, doneAt, busId).run();
+
+  if ((r.meta?.changes ?? 0) === 0) {
+    throw new HttpError(404, "not_found", "bus_id not found", { bus_id: busId });
+  }
+
+  return jsonResponse({ ok: true, bus_id: busId, q_state: q, done_at: doneAt });
+}
+
+async function route(req: Request, env: Env): Promise<Response> {
+  const url = new URL(req.url);
+  const path = url.pathname;
+
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders() });
+  }
+
+  // Unknown routes: always 404 (no auth check)
+  if (!isKnownRoute(path)) {
+    return textResponse("not found", 404);
+  }
+
+  // Known routes: enforce auth (or stealth 404)
+  authOrStealth404(req, env);
+
+  // Methods & handlers
+  if (path === "/ping") {
+    if (req.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET");
+    return textResponse("pong", 200);
+  }
+
+  if (path === "/enqueue") {
+    if (req.method !== "POST") throw new HttpError(405, "method_not_allowed", "Use POST");
+    return await handleEnqueue(req, env);
+  }
+
+  if (path === "/dequeue") {
+    if (req.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET");
+    return await handleDequeue(req, env);
+  }
+
+  if (path === "/finalize") {
+    if (req.method !== "POST") throw new HttpError(405, "method_not_allowed", "Use POST");
+    return await handleFinalize(req, env);
+  }
+
+  return textResponse("not found", 404);
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const cors = corsHeaders();
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: cors });
-    }
-
-    // auth (fail closed)
-    const authResp = requireApiKey(request, env);
-    if (authResp) return authResp;
-
-    const url = new URL(request.url);
-
-    // ping (doesn't touch DB)
-    if (url.pathname === "/ping" && request.method === "GET") {
-      return textResponse("pong", 200, cors);
-    }
-
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
-      // =========================================================
-      // POST /enqueue
-      // body: 2PLT_BUS/v1 JSON object
-      // =========================================================
-      if (url.pathname === "/enqueue" && request.method === "POST") {
-        const body = await readJsonBody(request);
-        const { bus } = normalizeBusV1Loose(body);
-
-        // Normalize queue fields at enqueue:
-        bus.q_state = 0;
-        bus.claimed_by = null;
-        bus.claimed_at = null;
-        bus.done_at = null;
-
-        const bus_json = JSON.stringify(bus);
-
-        const msg = bus.message;
-
-        // q_state is fixed to 0 at insert time (pending)
-        const stmt = env.DB.prepare(
-          `INSERT OR IGNORE INTO bus_messages(
-            schema_id,bus_id,bus_ts,q_state,
-            from_owner_id,to_owner_id,
-            claimed_by,claimed_at,done_at,
-            message_schema_id,
-            msg_type,op_id,
-            flow_owner_id,lane_id,request_id,
-            in_state,state,out_state,
-            bus_json
-          ) VALUES (
-            '2PLT_BUS/v1', ?, ?, 0,
-            ?, ?,
-            NULL,NULL,NULL,
-            '2PLT_MESSAGE/v1',
-            ?, ?,
-            ?, ?, ?,
-            ?, ?, ?,
-            ?
-          )`
-        ).bind(
-          bus.bus_id,
-          bus.bus_ts,
-          bus.routing.from_owner_id,
-          bus.routing.to_owner_id,
-          msg.msg_type,
-          msg.op_id,
-          msg.flow.owner_id,
-          msg.flow.lane_id,
-          msg.request_id,
-          msg.in_state,
-          (msg.msg_type === "RESPONSE" ? (msg.state ?? null) : null),
-          (msg.msg_type === "RESPONSE" ? (msg.out_state ?? null) : null),
-          bus_json
-        );
-
-        const res = await stmt.run();
-        const inserted = getChanges(res) === 1;
-
-        return jsonResponse(
-          {
-            ok: true,
-            bus_id: bus.bus_id,
-            duplicate: !inserted,
-            bus_ts: bus.bus_ts,
-            q_state: 0,
-          },
-          200,
-          cors
-        );
-      }
-
-      // =========================================================
-      // GET /dequeue?owner_id=...(&claimed_by=...)
-      // - Select one pending item for "to_owner_id=owner_id"
-      // - Claim it by setting claimed_by/claimed_at
-      // =========================================================
-      if (url.pathname === "/dequeue" && request.method === "GET") {
-        const owner_id = url.searchParams.get("owner_id") || "";
-        if (!isNonEmptyString(owner_id)) {
-          return jsonResponse({ ok: false, error: "owner_id is required" }, 400, cors);
-        }
-        const claimed_by = url.searchParams.get("claimed_by") || owner_id;
-
-        for (let i = 0; i < 5; i++) {
-          const pick = await env.DB.prepare(
-            `SELECT bus_id
-             FROM bus_messages
-             WHERE to_owner_id = ? AND q_state = 0 AND claimed_by IS NULL
-             ORDER BY bus_ts ASC, inserted_at ASC
-             LIMIT 1`
-          ).bind(owner_id).first<{ bus_id: string }>();
-
-          if (!pick?.bus_id) {
-            return jsonResponse({ ok: true, found: false }, 200, cors);
-          }
-
-          const upd = await env.DB.prepare(
-            `UPDATE bus_messages
-             SET claimed_by = ?, claimed_at = unixepoch()
-             WHERE bus_id = ? AND q_state = 0 AND claimed_by IS NULL`
-          ).bind(claimed_by, pick.bus_id).run();
-
-          if (getChanges(upd) === 1) {
-            const row = await env.DB.prepare(
-              `SELECT bus_id, bus_ts, q_state, from_owner_id, to_owner_id,
-                      claimed_by, claimed_at, done_at,
-                      msg_type, op_id, flow_owner_id, lane_id, request_id,
-                      in_state, state, out_state,
-                      bus_json, inserted_at
-               FROM bus_messages
-               WHERE bus_id = ?`
-            ).bind(pick.bus_id).first<any>();
-
-            const bus = row?.bus_json ? JSON.parse(row.bus_json) : null;
-
-            return jsonResponse(
-              {
-                ok: true,
-                found: true,
-                row: { ...row, bus_json: undefined },
-                bus,
-              },
-              200,
-              cors
-            );
-          }
-        }
-
-        // If we couldn't claim after retries, treat as empty for caller simplicity.
-        return jsonResponse({ ok: true, found: false, retry_exhausted: true }, 200, cors);
-      }
-
-      // =========================================================
-      // POST /finalize
-      // body: { bus_id: string, q_state: 1|9 }
-      // =========================================================
-      if (url.pathname === "/finalize" && request.method === "POST") {
-        const body = await readJsonBody(request);
-        const bus_id = body?.bus_id;
-        const q_state = body?.q_state;
-
-        if (!isNonEmptyString(bus_id)) {
-          return jsonResponse({ ok: false, error: "bus_id is required" }, 400, cors);
-        }
-        if (q_state !== 1 && q_state !== 9) {
-          return jsonResponse({ ok: false, error: "q_state must be 1 (DONE) or 9 (DEAD)" }, 400, cors);
-        }
-
-        const upd = await env.DB.prepare(
-          `UPDATE bus_messages
-           SET q_state = ?, done_at = unixepoch()
-           WHERE bus_id = ?`
-        ).bind(q_state, bus_id).run();
-
-        if (getChanges(upd) !== 1) {
-          return jsonResponse({ ok: false, error: "not found", bus_id }, 404, cors);
-        }
-
-        return jsonResponse({ ok: true, bus_id, q_state }, 200, cors);
-      }
-
-      return textResponse("not found", 404, cors);
+      return await route(req, env);
     } catch (e: any) {
-      const status = typeof e?.status === "number" ? e.status : 500;
-      return jsonResponse({ ok: false, error: String(e?.message ?? e) }, status, cors);
+      // Always respond with JSON error (avoid "connection reset" style symptoms)
+      if (e instanceof HttpError) {
+        // If STEALTH_404, unauthorized is already translated to 404 by throwing HttpError(404)
+        return jsonResponse(
+          { ok: false, error: { code: e.code, message: e.message, details: e.details } },
+          e.status
+        );
+      }
+      console.error("UNHANDLED_ERROR", e);
+      return jsonResponse(
+        { ok: false, error: { code: "internal_error", message: "Internal Server Error" } },
+        500
+      );
     }
   },
 };
