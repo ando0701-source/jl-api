@@ -62,6 +62,7 @@ export function validateBusLoose(bus: any): {
   in_state: string;
   state: string | null;
   out_state: string | null;
+  bus_obj: any;
   bus_json: string;
 } {
   if (bus == null || typeof bus !== "object") {
@@ -89,6 +90,7 @@ export function validateBusLoose(bus: any): {
 
   const bus_id = String(bus.bus_id);
   const bus_ts = normalizeBusTs(bus.bus_ts);
+  (bus as any).bus_ts = bus_ts; // canonicalize
 
   const from_owner_id = String(bus.routing.from_owner_id);
   const to_owner_id = String(bus.routing.to_owner_id);
@@ -109,6 +111,15 @@ export function validateBusLoose(bus: any): {
   const lane_id = String(bus.message.flow.lane_id);
   const request_id = String(bus.message.request_id);
   const in_state = String(bus.message.in_state);
+
+  // Canonicalize inner message payload field: prefer `contents` (DOC_ID 2PLT_20_MESSAGE_SCHEMA_VOCAB)
+  if ((bus.message as any).contents == null && (bus.message as any).payload != null) {
+    (bus.message as any).contents = (bus.message as any).payload;
+    delete (bus.message as any).payload;
+  }
+  if ((bus.message as any).contents == null || typeof (bus.message as any).contents !== "object") {
+    throw new HttpError(400, "missing_contents", "message.contents is required (object)");
+  }
 
   // Normalize response-only fields for DB constraints
   let state: string | null = null;
@@ -162,6 +173,7 @@ export function validateBusLoose(bus: any): {
     in_state,
     state,
     out_state,
+    bus_obj: bus,
     bus_json,
   };
 }

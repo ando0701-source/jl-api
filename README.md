@@ -1,8 +1,9 @@
 # jl-api (D1) TypeScript patch (2PLT_BUS/v1)
 
 ## What this patch does
-- D1 table of truth: `bus_messages.bus_json` stores the full `2PLT_BUS/v1` envelope.
+- D1 table of truth: `bus_messages.bus_json` stores the full `2PLT_BUS/v1` envelope (including mutable queue fields q_state/claimed*/done_at).
 - Validation policy: **strict only on required fields** (for DB extraction); preserve unknown fields.
+- Server canonicalizes `bus_ts` to epoch seconds and normalizes legacy `message.payload` → `message.contents`.
 - Unified POST JSON parsing (`/enqueue`, `/finalize`).
 - Top-level try/catch to avoid abrupt failures (helps reduce 'connection reset' symptoms).
 - Optional stealth mode: set `STEALTH_404="1"` to return 404 for auth failures.

@@ -6,11 +6,21 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
   const bus = await readJson(req);
   const x = validateBusLoose(bus);
 
+  // Canonicalize stored bus record (include transport queue fields)
+  const busObj: any = x.bus_obj;
+
   // Force enqueue-time queue fields
   const q_state = 0;
   const claimed_by = null;
   const claimed_at = null;
   const done_at = null;
+
+  busObj.q_state = q_state;
+  busObj.claimed_by = claimed_by;
+  busObj.claimed_at = claimed_at;
+  busObj.done_at = done_at;
+
+  const bus_json = JSON.stringify(busObj);
 
   const stmt = env.DB.prepare(
     `INSERT OR IGNORE INTO bus_messages(
@@ -29,7 +39,7 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
     x.message_schema_id, x.msg_type, x.op_id,
     x.flow_owner_id, x.lane_id, x.request_id,
     x.in_state, x.state, x.out_state,
-    x.bus_json
+    bus_json
   );
 
   const r = await stmt.run();
