@@ -22,18 +22,3 @@
 ## Notes for Windows cmd.exe curl
 - Use `--http1.1` and always specify method via `-X`.
 - Prefer `--data-binary "@file.json"` instead of inline JSON.
-
-
-## /finalize input
-Accepts either `{bus_id,q_state}` or a `/dequeue` snapshot `{..., row:{bus_id,q_state,...}}`.
-
-## Build marker
-This build sets response header `x-jl-api-build: jl-api-main_08` and exposes it via `/diag`.
-
-## Public debug endpoint (test-only)
-- GET `/bus.json?bus_id=...` -> summary of DB row + bus_json parse status
-- GET `/bus.json?bus_id=...&sync=1` -> best-effort sync bus_json.q_state/done_at to DB columns
-- Add `&full=1` to include raw/parsed bus_json
-
-## /finalize debug
-Add `?debug=1` to include `bus_json_sync` result in response JSON.
