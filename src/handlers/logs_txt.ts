@@ -1,5 +1,5 @@
 import { Env } from "../lib/types";
-import { HttpError, corsHeaders } from "../lib/http";
+import { HttpError, corsHeaders, noCacheHeaders } from "../lib/http";
 
 function escapeTsvCell(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -76,7 +76,7 @@ export async function handleLogsTxt(req: Request, env: Env): Promise<Response> {
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store",
+      ...noCacheHeaders(),
       ...corsHeaders(),
     },
   });

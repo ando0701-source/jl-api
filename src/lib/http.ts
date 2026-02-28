@@ -21,11 +21,25 @@ export function corsHeaders(): Record<string, string> {
   };
 }
 
+// Prevent intermediary/browser/CDN caching.
+// This matters because validation must reflect the current deployed code and DB state.
+export function noCacheHeaders(): Record<string, string> {
+  return {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    Pragma: "no-cache",
+    Expires: "0",
+    // CDN hints (best-effort)
+    "CDN-Cache-Control": "no-store",
+    "Surrogate-Control": "no-store",
+  };
+}
+
 export function jsonResponse(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
+      ...noCacheHeaders(),
       ...corsHeaders(),
       ...extraHeaders,
     },
@@ -37,6 +51,7 @@ export function textResponse(body: string, status = 200, extraHeaders: Record<st
     status,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
+      ...noCacheHeaders(),
       ...corsHeaders(),
       ...extraHeaders,
     },

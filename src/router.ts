@@ -1,5 +1,5 @@
 import { Env } from "./lib/types";
-import { HttpError, corsHeaders, textResponse } from "./lib/http";
+import { HttpError, corsHeaders, noCacheHeaders, textResponse } from "./lib/http";
 import { authOrStealth404, isKnownRoute } from "./lib/auth";
 import { handleEnqueue } from "./handlers/enqueue";
 import { handleDequeue } from "./handlers/dequeue";
@@ -13,7 +13,7 @@ export async function route(req: Request, env: Env): Promise<Response> {
 
   // CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders() });
+    return new Response(null, { status: 204, headers: { ...noCacheHeaders(), ...corsHeaders() } });
   }
 
   // Public routes (no auth): log exports
