@@ -28,17 +28,14 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
 
     if (!row) return jsonResponse({ ok: true, found: false });
 
-    const busObj: any = JSON.parse(String((row as any).bus_json));
-    // keep stored bus_json consistent with mutable queue fields
-    busObj.q_state = (row as any).q_state;
-    busObj.claimed_by = (row as any).claimed_by;
-    busObj.claimed_at = (row as any).claimed_at;
-    busObj.done_at = (row as any).done_at;
-    (row as any).bus_json = JSON.stringify(busObj);
-
-    await env.DB.prepare(`UPDATE bus_messages SET bus_json = ? WHERE bus_id = ?`)
-      .bind(JSON.stringify(busObj), String((row as any).bus_id))
-      .run();
+    // bus_json is intended to stay as a strict 2PLT_BUS/v1 payload.
+    // Claim metadata (claimed_by/claimed_at) lives in DB columns only.
+    let busObj: any = null;
+    try {
+      busObj = JSON.parse(String((row as any).bus_json));
+    } catch (_) {
+      busObj = null;
+    }
 
     return jsonResponse({
       ok: true,
@@ -77,16 +74,12 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
 
       if (!row) throw new HttpError(500, "inconsistent_state", "Claimed row not found after update");
 
-      const busObj: any = JSON.parse(String((row as any).bus_json));
-      busObj.q_state = (row as any).q_state;
-      busObj.claimed_by = (row as any).claimed_by;
-      busObj.claimed_at = (row as any).claimed_at;
-      busObj.done_at = (row as any).done_at;
-      (row as any).bus_json = JSON.stringify(busObj);
-
-      await env.DB.prepare(`UPDATE bus_messages SET bus_json = ? WHERE bus_id = ?`)
-        .bind(JSON.stringify(busObj), String((row as any).bus_id))
-        .run();
+      let busObj: any = null;
+      try {
+        busObj = JSON.parse(String((row as any).bus_json));
+      } catch (_) {
+        busObj = null;
+      }
 
       return jsonResponse({
         ok: true,

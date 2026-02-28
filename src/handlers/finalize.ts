@@ -72,21 +72,33 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
     throw new HttpError(404, "not_found", "bus_id not found", { bus_id: busId });
   }
 
-  // Keep stored bus_json consistent with mutable queue fields
-  const row = await env.DB.prepare(
-    `SELECT bus_id,q_state,claimed_by,claimed_at,done_at,bus_json FROM bus_messages WHERE bus_id = ?`
-  ).bind(busId).first();
+  // Keep stored 2PLT_BUS/v1 JSON consistent with mutable DB columns.
+  // Primary objective: ensure $.q_state matches bus_messages.q_state.
+  // We avoid injecting non-schema fields (claimed_by/done_at) into bus_json.
+  try {
+    // Prefer SQLite JSON1: fast, avoids JS parsing pitfalls.
+    await env.DB.prepare(
+      `UPDATE bus_messages
+       SET bus_json = json_set(bus_json, '$.q_state', ?)
+       WHERE bus_id = ? AND bus_json IS NOT NULL`
+    ).bind(qState, busId).run();
+  } catch (_) {
+    // Fallback: best-effort JS patch; never fail finalize due to bus_json.
+    try {
+      const row = await env.DB.prepare(
+        `SELECT bus_id,q_state,bus_json FROM bus_messages WHERE bus_id = ?`
+      ).bind(busId).first();
 
-  if (row && (row as any).bus_json != null) {
-    const busObj: any = JSON.parse(String((row as any).bus_json));
-    busObj.q_state = (row as any).q_state;
-    busObj.claimed_by = (row as any).claimed_by;
-    busObj.claimed_at = (row as any).claimed_at;
-    busObj.done_at = (row as any).done_at;
-
-    await env.DB.prepare(`UPDATE bus_messages SET bus_json = ? WHERE bus_id = ?`)
-      .bind(JSON.stringify(busObj), String((row as any).bus_id))
-      .run();
+      if (row && (row as any).bus_json != null) {
+        const busObj: any = JSON.parse(String((row as any).bus_json));
+        busObj.q_state = (row as any).q_state;
+        await env.DB.prepare(`UPDATE bus_messages SET bus_json = ? WHERE bus_id = ?`)
+          .bind(JSON.stringify(busObj), String((row as any).bus_id))
+          .run();
+      }
+    } catch (_) {
+      // swallow
+    }
   }
 
   return jsonResponse({ ok: true, bus_id: busId, q_state: qState, done_at: doneAt });

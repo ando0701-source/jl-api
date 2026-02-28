@@ -37,7 +37,15 @@ export async function handleLogsTxt(req: Request, env: Env): Promise<Response> {
   }
   if (limit > 5000) limit = 5000;
 
-  const sql = "SELECT * FROM bus_messages ORDER BY inserted_at ASC, bus_id ASC LIMIT ?";
+  // order query
+  const orderRaw = (url.searchParams.get("order") || "asc").toLowerCase();
+  let orderSql: "ASC" | "DESC" = "ASC";
+  if (orderRaw === "desc") orderSql = "DESC";
+  else if (orderRaw !== "asc") {
+    throw new HttpError(400, "invalid_order", "order must be 'asc' or 'desc'");
+  }
+
+  const sql = `SELECT * FROM bus_messages ORDER BY inserted_at ${orderSql}, bus_id ${orderSql} LIMIT ?`;
 
   // Prefer D1 raw() with columnNames when possible
   let rawRows: unknown[][] = [];
