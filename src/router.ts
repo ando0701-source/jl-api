@@ -1,11 +1,12 @@
 import { Env } from "./lib/types";
-import { HttpError, corsHeaders, noCacheHeaders, textResponse } from "./lib/http";
+import { HttpError, corsHeaders, textResponse } from "./lib/http";
 import { authOrStealth404, isKnownRoute } from "./lib/auth";
 import { handleEnqueue } from "./handlers/enqueue";
 import { handleDequeue } from "./handlers/dequeue";
 import { handleFinalize } from "./handlers/finalize";
 import { handleLogsTsv } from "./handlers/logs_tsv";
 import { handleLogsTxt } from "./handlers/logs_txt";
+import { handleDebugTxt } from "./handlers/debug_txt";
 
 export async function route(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
@@ -13,7 +14,7 @@ export async function route(req: Request, env: Env): Promise<Response> {
 
   // CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: { ...noCacheHeaders(), ...corsHeaders() } });
+    return new Response(null, { status: 204, headers: corsHeaders() });
   }
 
   // Public routes (no auth): log exports
@@ -31,6 +32,13 @@ export async function route(req: Request, env: Env): Promise<Response> {
     const r = await handleLogsTxt(req, env);
     return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
   }
+  // Debug-lite export (public, but hard-gated by env.DEBUG_LITE=1)
+  if (path === "/debug.txt") {
+    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET/HEAD");
+    const r = await handleDebugTxt(req, env);
+    return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
+  }
+
 
   // Unknown routes: always 404 (no auth check)
   if (!isKnownRoute(path)) {

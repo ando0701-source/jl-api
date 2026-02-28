@@ -1,6 +1,7 @@
 import { Env } from "../lib/types";
 import { HttpError, jsonResponse } from "../lib/http";
 import { nowEpochSec } from "../lib/util";
+import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
 
 async function patchBusJsonClaim(env: Env, busId: string, claimedBy: string, claimedAt: number): Promise<void> {
   // Keep stored 2PLT_BUS/v1 JSON consistent with mutable DB columns.
@@ -32,6 +33,27 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
   const claimedBy = url.searchParams.get("claimed_by") || ownerId;
   const now = nowEpochSec();
 
+  const debugEnabled = isDebugLiteEnabled(req, env);
+
+  // Optional: reclaim expired claims (self-heal; avoids human SQL)
+  const ttlRaw = env.CLAIM_TTL_SEC;
+  const ttlSec = ttlRaw ? Number(ttlRaw) : 0;
+  if (Number.isFinite(ttlSec) && ttlSec > 0) {
+    const cutoff = now - Math.floor(ttlSec);
+    try {
+      const r = await env.DB.prepare(
+        `UPDATE bus_messages
+         SET claimed_by = NULL, claimed_at = NULL
+         WHERE q_state = 0 AND done_at IS NULL
+           AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL
+           AND claimed_at <= ?`
+      ).bind(cutoff).run();
+      await dbg(env, debugEnabled, "ttl_reclaim", { cutoff, changes: r.meta?.changes ?? 0 });
+    } catch (e: any) {
+      await dbg(env, debugEnabled, "ttl_reclaim_error", { message: String(e?.message ?? e) });
+    }
+  }
+
   // Try single-statement claim+return first (SQLite RETURNING)
   try {
     const row = await env.DB.prepare(
@@ -48,9 +70,13 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
                  message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,in_state,state,out_state,bus_json,inserted_at`
     ).bind(claimedBy, now, ownerId).first();
 
-    if (!row) return jsonResponse({ ok: true, found: false });
+    if (!row) {
+      await dbg(env, debugEnabled, "dequeue_not_found", { owner_id: ownerId });
+      return jsonResponse({ ok: true, found: false });
+    }
 
     const busId = String((row as any).bus_id);
+    await dbg(env, debugEnabled, "dequeue_claimed", { owner_id: ownerId, bus_id: busId, claimed_by: claimedBy });
     await patchBusJsonClaim(env, busId, claimedBy, now);
 
     let busObj: any = null;
@@ -79,7 +105,10 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
          LIMIT 1`
       ).bind(ownerId).first();
 
-      if (!picked) return jsonResponse({ ok: true, found: false });
+      if (!picked) {
+        await dbg(env, debugEnabled, "dequeue_not_found", { owner_id: ownerId, attempt });
+        return jsonResponse({ ok: true, found: false });
+      }
 
       const busId = String((picked as any).bus_id);
 
@@ -91,6 +120,7 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
 
       if ((upd.meta?.changes ?? 0) === 0) continue; // lost race; retry
 
+      await dbg(env, debugEnabled, "dequeue_claimed", { owner_id: ownerId, bus_id: busId, claimed_by: claimedBy, attempt });
       await patchBusJsonClaim(env, busId, claimedBy, now);
 
       const row = await env.DB.prepare(

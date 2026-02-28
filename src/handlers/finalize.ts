@@ -1,5 +1,6 @@
 import { HttpError, jsonResponse } from "../lib/http";
 import { nowEpochSec } from "../lib/util";
+import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
 import { Env } from "../lib/types";
 import { readJson } from "../lib/http";
 

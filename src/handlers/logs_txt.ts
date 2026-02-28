@@ -76,8 +76,8 @@ export async function handleLogsTxt(req: Request, env: Env): Promise<Response> {
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      ...noCacheHeaders(),
       ...corsHeaders(),
+      ...noCacheHeaders(),
     },
   });
 }

@@ -19,19 +19,17 @@ export function corsHeaders(): Record<string, string> {
     "Access-Control-Allow-Headers": "Content-Type,X-API-Key",
     "Access-Control-Max-Age": "86400",
   };
-}
 
-// Prevent intermediary/browser/CDN caching.
-// This matters because validation must reflect the current deployed code and DB state.
 export function noCacheHeaders(): Record<string, string> {
   return {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-    Pragma: "no-cache",
-    Expires: "0",
-    // CDN hints (best-effort)
+    "Pragma": "no-cache",
+    "Expires": "0",
     "CDN-Cache-Control": "no-store",
     "Surrogate-Control": "no-store",
   };
+}
+
 }
 
 export function jsonResponse(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
@@ -39,8 +37,8 @@ export function jsonResponse(body: unknown, status = 200, extraHeaders: Record<s
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      ...noCacheHeaders(),
       ...corsHeaders(),
+      ...noCacheHeaders(),
       ...extraHeaders,
     },
   });
@@ -51,8 +49,8 @@ export function textResponse(body: string, status = 200, extraHeaders: Record<st
     status,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      ...noCacheHeaders(),
       ...corsHeaders(),
+      ...noCacheHeaders(),
       ...extraHeaders,
     },
   });
