@@ -4,6 +4,7 @@ import { authOrStealth404, isKnownRoute } from "./lib/auth";
 import { handleEnqueue } from "./handlers/enqueue";
 import { handleDequeue } from "./handlers/dequeue";
 import { handleFinalize } from "./handlers/finalize";
+import { handleLogsTsv } from "./handlers/logs_tsv";
 
 export async function route(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
@@ -12,6 +13,13 @@ export async function route(req: Request, env: Env): Promise<Response> {
   // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders() });
+  }
+
+
+  // Public route (no auth): export logs as TSV (for ChatGPT-side inspection)
+  if (path === "/logs.tsv") {
+    if (req.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET");
+    return await handleLogsTsv(req, env);
   }
 
   // Unknown routes: always 404 (no auth check)
