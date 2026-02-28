@@ -22,7 +22,7 @@ async function getBusMessagesHeader(env: Env): Promise<string[]> {
   return cols;
 }
 
-export async function handleLogsTsv(req: Request, env: Env): Promise<Response> {
+export async function handleLogsTxt(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
 
   // limit query
@@ -67,7 +67,7 @@ export async function handleLogsTsv(req: Request, env: Env): Promise<Response> {
   return new Response(body, {
     status: 200,
     headers: {
-      "Content-Type": "text/tab-separated-values; charset=utf-8",
+      "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
       ...corsHeaders(),
     },

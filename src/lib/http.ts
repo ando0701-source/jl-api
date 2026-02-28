@@ -15,7 +15,7 @@ export class HttpError extends Error {
 export function corsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type,X-API-Key",
     "Access-Control-Max-Age": "86400",
   };

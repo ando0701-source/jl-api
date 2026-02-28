@@ -5,6 +5,8 @@ import { handleEnqueue } from "./handlers/enqueue";
 import { handleDequeue } from "./handlers/dequeue";
 import { handleFinalize } from "./handlers/finalize";
 import { handleLogsTsv } from "./handlers/logs_tsv";
+import { handleLogsTxt } from "./handlers/logs_txt";
+import { handleDiag } from "./handlers/diag";
 
 export async function route(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
@@ -16,10 +18,25 @@ export async function route(req: Request, env: Env): Promise<Response> {
   }
 
 
-  // Public route (no auth): export logs as TSV (for ChatGPT-side inspection)
+  // Public routes (no auth): diagnostics / log exports
+  if (path === "/diag") {
+    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET/HEAD");
+    const r = await handleDiag(req, env);
+    return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
+  }
+
+  // Export logs as TSV (AI-side inspection)
   if (path === "/logs.tsv") {
-    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET");
-    return await handleLogsTsv(req, env);
+    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET/HEAD");
+    const r = await handleLogsTsv(req, env);
+    return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
+  }
+
+  // Export logs as plain text (TSV body, but Content-Type is text/plain for maximum client compatibility)
+  if (path === "/logs.txt") {
+    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET/HEAD");
+    const r = await handleLogsTxt(req, env);
+    return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
   }
 
   // Unknown routes: always 404 (no auth check)
@@ -32,7 +49,7 @@ export async function route(req: Request, env: Env): Promise<Response> {
 
   // Methods & handlers
   if (path === "/ping") {
-    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET");
+    if (req.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET");
     return textResponse("pong", 200);
   }
 
@@ -42,7 +59,7 @@ export async function route(req: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/dequeue") {
-    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET");
+    if (req.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET");
     return await handleDequeue(req, env);
   }
 
