@@ -2,6 +2,28 @@ import { Env } from "../lib/types";
 import { HttpError, jsonResponse } from "../lib/http";
 import { nowEpochSec } from "../lib/util";
 
+async function patchBusJsonClaim(env: Env, busId: string, claimedBy: string, claimedAt: number): Promise<void> {
+  // Keep stored 2PLT_BUS/v1 JSON consistent with mutable DB columns.
+  // We update only schema fields (claimed_by, claimed_at) and never inject non-schema data.
+  try {
+    const row = await env.DB.prepare(
+      `SELECT bus_json FROM bus_messages WHERE bus_id = ?`
+    ).bind(busId).first();
+
+    if (!row || (row as any).bus_json == null) return;
+
+    const busObj: any = JSON.parse(String((row as any).bus_json));
+    busObj.claimed_by = claimedBy;
+    busObj.claimed_at = claimedAt;
+
+    await env.DB.prepare(
+      `UPDATE bus_messages SET bus_json = ? WHERE bus_id = ?`
+    ).bind(JSON.stringify(busObj), busId).run();
+  } catch (_) {
+    // best-effort; never fail dequeue
+  }
+}
+
 export async function handleDequeue(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const ownerId = url.searchParams.get("owner_id");
@@ -28,11 +50,15 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
 
     if (!row) return jsonResponse({ ok: true, found: false });
 
-    // bus_json is intended to stay as a strict 2PLT_BUS/v1 payload.
-    // Claim metadata (claimed_by/claimed_at) lives in DB columns only.
+    const busId = String((row as any).bus_id);
+    await patchBusJsonClaim(env, busId, claimedBy, now);
+
     let busObj: any = null;
     try {
       busObj = JSON.parse(String((row as any).bus_json));
+      // Ensure returned "bus" reflects the claimed metadata even if DB json patch is delayed.
+      busObj.claimed_by = claimedBy;
+      busObj.claimed_at = now;
     } catch (_) {
       busObj = null;
     }
@@ -65,6 +91,8 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
 
       if ((upd.meta?.changes ?? 0) === 0) continue; // lost race; retry
 
+      await patchBusJsonClaim(env, busId, claimedBy, now);
+
       const row = await env.DB.prepare(
         `SELECT bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,
                 message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,in_state,state,out_state,bus_json,inserted_at
@@ -77,6 +105,8 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
       let busObj: any = null;
       try {
         busObj = JSON.parse(String((row as any).bus_json));
+        busObj.claimed_by = claimedBy;
+        busObj.claimed_at = now;
       } catch (_) {
         busObj = null;
       }
