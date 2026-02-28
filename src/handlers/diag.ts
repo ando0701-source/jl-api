@@ -1,4 +1,5 @@
 import { Env } from "../lib/types";
+import { BUILD_ID } from "../lib/build";
 import { jsonResponse, corsHeaders } from "../lib/http";
 
 function pickHeaders(h: Headers): Record<string, string> {
@@ -31,6 +32,7 @@ export async function handleDiag(req: Request, _env: Env): Promise<Response> {
       search: url.search,
       headers: pickHeaders(req.headers),
       now_utc: new Date().toISOString(),
+      build_id: BUILD_ID,
     },
     200,
     {

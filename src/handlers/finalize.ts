@@ -48,29 +48,61 @@ function extractFinalizeInput(body: any): { busId: string; qState: number } {
   return { busId, qState: q };
 }
 
-async function patchBusJsonFinalize(env: Env, busId: string, qState: number, doneAt: number): Promise<void> {
+async function patchBusJsonFinalize(
+  env: Env,
+  busId: string,
+  qState: number,
+  doneAt: number
+): Promise<{ ok: boolean; method: string; error?: string }> {
   // Keep stored 2PLT_BUS/v1 JSON consistent with mutable DB columns.
   // We update only schema fields (q_state, done_at) and never inject non-schema data.
   try {
-    const row = await env.DB.prepare(
-      `SELECT bus_json FROM bus_messages WHERE bus_id = ?`
-    ).bind(busId).first();
+    // Try SQL json_set first (fast path, no JS parse). If unavailable, fall back to JS parse/update.
+    try {
+      const r = await env.DB.prepare(
+        `UPDATE bus_messages
+         SET bus_json = json_set(bus_json, '$.q_state', ?, '$.done_at', ?)
+         WHERE bus_id = ?`
+      ).bind(qState, doneAt, busId).run();
+      if ((r.meta?.changes ?? 0) > 0) {
+        return { ok: true, method: "sql_json_set" };
+      }
+      // If no change, continue to JS path for safety.
+    } catch (e: any) {
+      // ignore and fall back
+    }
 
-    if (!row || (row as any).bus_json == null) return;
+    const row = await env.DB.prepare(`SELECT bus_json FROM bus_messages WHERE bus_id = ?`).bind(busId).first();
+    if (!row || (row as any).bus_json == null) return { ok: false, method: "js_parse", error: "bus_json_missing" };
 
-    const busObj: any = JSON.parse(String((row as any).bus_json));
+    const raw = String((row as any).bus_json);
+    let busObj: any = JSON.parse(raw);
+    if (typeof busObj === "string") busObj = JSON.parse(busObj);
+
+    if (!busObj || typeof busObj !== "object") {
+      return { ok: false, method: "js_parse", error: "bus_json_not_object" };
+    }
+
     busObj.q_state = qState;
     busObj.done_at = doneAt;
 
-    await env.DB.prepare(
-      `UPDATE bus_messages SET bus_json = ? WHERE bus_id = ?`
-    ).bind(JSON.stringify(busObj), busId).run();
-  } catch (_) {
-    // best-effort; never fail finalize
+    const r2 = await env.DB.prepare(`UPDATE bus_messages SET bus_json = ? WHERE bus_id = ?`)
+      .bind(JSON.stringify(busObj), busId)
+      .run();
+
+    if ((r2.meta?.changes ?? 0) === 0) {
+      return { ok: false, method: "js_parse", error: "no_row_updated" };
+    }
+    return { ok: true, method: "js_parse" };
+  } catch (e: any) {
+    return { ok: false, method: "js_parse", error: String(e?.message ?? e) };
   }
 }
 
 export async function handleFinalize(req: Request, env: Env): Promise<Response> {
+  const url = new URL(req.url);
+  const debug = url.searchParams.get("debug") === "1";
+
   const body = await readJson(req);
 
   // Accept either:
@@ -95,7 +127,7 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
   }
 
   // Robust sync: JS patch (no JSON1 dependency)
-  await patchBusJsonFinalize(env, busId, qState, doneAt);
+  const sync = await patchBusJsonFinalize(env, busId, qState, doneAt);
 
-  return jsonResponse({ ok: true, bus_id: busId, q_state: qState, done_at: doneAt });
+  return jsonResponse({ ok: true, bus_id: busId, q_state: qState, done_at: doneAt, ...(debug ? { bus_json_sync: sync } : {}) });
 }

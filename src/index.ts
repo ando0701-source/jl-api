@@ -5,13 +5,17 @@
 // Optional stealth mode: set env.STEALTH_404="1" to return 404 for auth failures.
 
 import { Env } from "./lib/types";
+import { BUILD_ID } from "./lib/build";
 import { HttpError, jsonResponse } from "./lib/http";
 import { route } from "./router";
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
-      return await route(req, env);
+      const r = await route(req, env);
+      const h = new Headers(r.headers);
+      h.set("x-jl-api-build", BUILD_ID);
+      return new Response(r.body, { status: r.status, statusText: r.statusText, headers: h });
     } catch (e: any) {
       // Always respond with JSON error (avoid "connection reset" style symptoms)
       if (e instanceof HttpError) {
