@@ -6,8 +6,6 @@ import { handleDequeue } from "./handlers/dequeue";
 import { handleFinalize } from "./handlers/finalize";
 import { handleLogsTsv } from "./handlers/logs_tsv";
 import { handleLogsTxt } from "./handlers/logs_txt";
-import { handleDiag } from "./handlers/diag";
-import { handleBusJson } from "./handlers/bus_json";
 
 export async function route(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
@@ -18,13 +16,7 @@ export async function route(req: Request, env: Env): Promise<Response> {
     return new Response(null, { status: 204, headers: corsHeaders() });
   }
 
-
-  // Public routes (no auth): diagnostics / log exports
-  if (path === "/diag") {
-    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET/HEAD");
-    const r = await handleDiag(req, env);
-    return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
-  }
+  // Public routes (no auth): log exports
 
   // Export logs as TSV (AI-side inspection)
   if (path === "/logs.tsv") {
@@ -37,15 +29,6 @@ export async function route(req: Request, env: Env): Promise<Response> {
   if (path === "/logs.txt") {
     if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET/HEAD");
     const r = await handleLogsTxt(req, env);
-    return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
-  }
-
-
-  // Inspect/sync a single bus_json row (public; test-only)
-  // GET/HEAD /bus.json?bus_id=...(&sync=1&full=1)
-  if (path === "/bus.json") {
-    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET/HEAD");
-    const r = await handleBusJson(req, env);
     return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
   }
 
