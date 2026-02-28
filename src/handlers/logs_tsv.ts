@@ -28,16 +28,19 @@ export async function handleLogsTsv(req: Request, env: Env): Promise<Response> {
   // limit query
   const limitRaw = url.searchParams.get("limit");
   let limit = 1000;
-  if (limitRaw !== null) {
+
+  // Some clients may send `?limit=` (empty). Treat as "not provided".
+  if (limitRaw !== null && limitRaw.trim() !== "") {
+    // Enforce integer parsing (no floats)
     const n = Number(limitRaw);
     if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
       throw new HttpError(400, "invalid_limit", "limit must be a positive integer");
     }
     limit = n;
   }
-  if (limit > 5000) limit = 5000;
 
-  const sql = "SELECT * FROM bus_messages ORDER BY inserted_at ASC, bus_id ASC LIMIT ?";
+  if (limit > 5000) limit = 5000;
+const sql = "SELECT * FROM bus_messages ORDER BY inserted_at ASC, bus_id ASC LIMIT ?";
 
   // Prefer D1 raw() with columnNames when possible
   let rawRows: unknown[][] = [];

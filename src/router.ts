@@ -18,7 +18,7 @@ export async function route(req: Request, env: Env): Promise<Response> {
 
   // Public route (no auth): export logs as TSV (for ChatGPT-side inspection)
   if (path === "/logs.tsv") {
-    if (req.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET");
+    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET");
     return await handleLogsTsv(req, env);
   }
 
@@ -32,7 +32,7 @@ export async function route(req: Request, env: Env): Promise<Response> {
 
   // Methods & handlers
   if (path === "/ping") {
-    if (req.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET");
+    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET");
     return textResponse("pong", 200);
   }
 
@@ -42,7 +42,7 @@ export async function route(req: Request, env: Env): Promise<Response> {
   }
 
   if (path === "/dequeue") {
-    if (req.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET");
+    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET");
     return await handleDequeue(req, env);
   }
 
