@@ -1,16 +1,20 @@
 {
-	"compatibility_date": "2025-10-08",
-	"main": "src/index.ts",
-	"name": "jl-api",
-	"upload_source_maps": true,
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_id": "2dba7cce-385b-4486-91a8-51097b4666cf",
-			"database_name": "jl_db"
-		}
-	],
-	"observability": {
-		"enabled": true
-	}
+  "compatibility_date": "2025-10-08",
+  "main": "src/index.ts",
+  "name": "jl-api",
+  "upload_source_maps": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "2dba7cce-385b-4486-91a8-51097b4666cf",
+      "database_name": "jl_db"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "CLAIM_TTL_SEC": "5",
+    "DEBUG_LITE": "0"
+  }
 }

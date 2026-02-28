@@ -19,6 +19,7 @@ export function corsHeaders(): Record<string, string> {
     "Access-Control-Allow-Headers": "Content-Type,X-API-Key",
     "Access-Control-Max-Age": "86400",
   };
+}
 
 export function noCacheHeaders(): Record<string, string> {
   return {
@@ -30,7 +31,6 @@ export function noCacheHeaders(): Record<string, string> {
   };
 }
 
-}
 
 export function jsonResponse(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
