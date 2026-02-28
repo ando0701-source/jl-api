@@ -100,8 +100,6 @@ async function patchBusJsonFinalize(
 }
 
 export async function handleFinalize(req: Request, env: Env): Promise<Response> {
-  const url = new URL(req.url);
-  const debug = url.searchParams.get("debug") === "1";
 
   const body = await readJson(req);
 
@@ -129,5 +127,5 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
   // Robust sync: JS patch (no JSON1 dependency)
   const sync = await patchBusJsonFinalize(env, busId, qState, doneAt);
 
-  return jsonResponse({ ok: true, bus_id: busId, q_state: qState, done_at: doneAt, ...(debug ? { bus_json_sync: sync } : {}) });
+  return jsonResponse({ ok: true, bus_id: busId, q_state: qState, done_at: doneAt });
 }
