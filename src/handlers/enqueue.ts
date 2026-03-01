@@ -1,9 +1,11 @@
 import { Env } from "../lib/types";
-import { readJson, jsonResponse } from "../lib/http";
+import { readJson, jsonResponse, HttpError } from "../lib/http";
 import { validateBusLoose } from "../lib/validate";
 import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
 
 export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
+  const dbgEnabled = isDebugLiteEnabled(req, env);
+
   const bus = await readJson(req);
   const x = validateBusLoose(bus);
 
@@ -23,6 +25,19 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
 
   const bus_json = JSON.stringify(busObj);
 
+  await dbg(env, dbgEnabled, "enqueue_in", {
+    bus_id: x.bus_id,
+    msg_type: x.msg_type,
+    op_id: x.op_id,
+    lane_id: x.lane_id,
+    request_id: x.request_id,
+    state: x.state,
+    out_state: x.out_state,
+  });
+
+  // Idempotent insert by bus_id. If the insert is ignored, we must distinguish:
+  // - true duplicate (bus_id already exists)
+  // - constraint violation (CHECK/NOT NULL/etc) causing IGNORE with bus_id not inserted
   const stmt = env.DB.prepare(
     `INSERT OR IGNORE INTO bus_messages(
       schema_id,bus_id,bus_ts,q_state,
@@ -43,14 +58,32 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
     bus_json
   );
 
-  const r = await stmt.run();
-  const duplicate = (r.meta?.changes ?? 0) === 0;
+  const r: any = await stmt.run();
+  const changes = (r && r.meta && typeof r.meta.changes === "number") ? r.meta.changes : undefined;
 
-  return jsonResponse({
-    ok: true,
+  if (changes === 1) {
+    await dbg(env, dbgEnabled, "enqueue_ok", { bus_id: x.bus_id, changes });
+    return jsonResponse({ ok: true, bus_id: x.bus_id, duplicate: false, bus_ts: x.bus_ts, q_state });
+  }
+
+  // changes != 1: check whether row exists (true duplicate) or ignored insert (constraint)
+  const exists = await env.DB.prepare("SELECT 1 AS one FROM bus_messages WHERE bus_id = ? LIMIT 1")
+    .bind(x.bus_id)
+    .all<any>();
+
+  const isDup = (exists.results || []).length > 0;
+
+  await dbg(env, dbgEnabled, "enqueue_ignored", {
     bus_id: x.bus_id,
-    duplicate,
-    bus_ts: x.bus_ts,
-    q_state,
+    changes,
+    is_duplicate: isDup,
+    meta: r && r.meta ? r.meta : null,
   });
+
+  if (isDup) {
+    return jsonResponse({ ok: true, bus_id: x.bus_id, duplicate: true, bus_ts: x.bus_ts, q_state });
+  }
+
+  // Not inserted and not present => ignored due to constraint violation / invalid payload.
+  throw new HttpError(400, "enqueue_ignored", "enqueue ignored by DB constraints (likely invalid message fields)");
 }

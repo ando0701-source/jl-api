@@ -1,22 +1,6 @@
 import { Env } from "./types";
-import { nowEpochSec } from "./util";
 
-/**
- * Debug-lite: writes minimal diagnostic events into D1 when enabled.
- * - Enabled only when env.DEBUG_LITE === "1".
- * - Sink is D1 table debug_events (created on-demand).
- * - Best-effort only; never fails the main API flow.
- *
- * This is designed to be easy to remove:
- *  - delete this file and the few call-sites, and remove /debug.txt route.
- *  - or keep it and set DEBUG_LITE=0 (unset) to disable.
- */
-
-export function isDebugLiteEnabled(_req: Request, env: Env): boolean {
-  return env.DEBUG_LITE === "1";
-}
-
-async function ensureTable(env: Env): Promise<void> {
+async function ensureDebugTable(env: Env): Promise<void> {
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS debug_events (
       id TEXT PRIMARY KEY,
@@ -27,17 +11,32 @@ async function ensureTable(env: Env): Promise<void> {
   ).run();
 }
 
-export async function dbg(env: Env, enabled: boolean, kind: string, data: unknown): Promise<void> {
+function nowSec(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+function uuidLike(): string {
+  // cheap unique id: ts + random
+  return `${nowSec()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function isDebugLiteEnabled(req: Request, env: Env): boolean {
+  if (env.DEBUG_LITE === "1") return true;
+  const url = new URL(req.url);
+  return url.searchParams.get("debug") === "1";
+}
+
+export async function dbg(env: Env, enabled: boolean, kind: string, obj: unknown): Promise<void> {
   if (!enabled) return;
   try {
-    await ensureTable(env);
-    const id = crypto.randomUUID();
-    const ts = nowEpochSec();
-    const payload = data === undefined ? null : data;
-    await env.DB.prepare(
-      `INSERT INTO debug_events (id, ts, kind, data) VALUES (?, ?, ?, ?)`
-    ).bind(id, ts, kind, JSON.stringify(payload)).run();
-  } catch (_) {
-    // ignore (best-effort)
+    await ensureDebugTable(env);
+    const ts = nowSec();
+    const id = uuidLike();
+    const data = JSON.stringify(obj);
+    await env.DB.prepare("INSERT INTO debug_events(id,ts,kind,data) VALUES (?,?,?,?)")
+      .bind(id, ts, kind, data)
+      .run();
+  } catch {
+    // best-effort: never fail the main request
   }
 }
