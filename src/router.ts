@@ -7,6 +7,7 @@ import { handleFinalize } from "./handlers/finalize";
 import { handleLogsTsv } from "./handlers/logs_tsv";
 import { handleLogsTxt } from "./handlers/logs_txt";
 import { handleDebugTxt } from "./handlers/debug_txt";
+import { handleEventsTxt } from "./handlers/events_txt";
 
 export async function route(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
@@ -38,6 +39,14 @@ export async function route(req: Request, env: Env): Promise<Response> {
     const r = await handleDebugTxt(req, env);
     return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
   }
+
+  // Derived events export (public, hard-gated by env.EVENTS_LITE=1 or env.DEBUG_LITE=1)
+  if (path === "/events.txt") {
+    if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method_not_allowed", "Use GET/HEAD");
+    const r = await handleEventsTxt(req, env);
+    return req.method === "HEAD" ? new Response(null, { status: r.status, headers: r.headers }) : r;
+  }
+
 
 
   // Unknown routes: always 404 (no auth check)

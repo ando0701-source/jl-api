@@ -15,6 +15,7 @@
   },
   "vars": {
     "CLAIM_TTL_SEC": "5",
-    "DEBUG_LITE": "1"
+    "DEBUG_LITE": "1",
+    "EVENTS_LITE": "1"
   }
 }
