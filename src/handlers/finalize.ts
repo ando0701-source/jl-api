@@ -79,7 +79,7 @@ async function patchBusJsonFinalize(
   }
 }
 
-export async function handleFinalizeexport async function handleFinalize(req: Request, env: Env): Promise<Response> {
+export async function handleFinalize(req: Request, env: Env): Promise<Response> {
 
   const body = await readJson(req);
 
