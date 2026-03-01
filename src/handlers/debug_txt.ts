@@ -27,9 +27,11 @@ async function ensureTable(env: Env): Promise<void> {
 }
 
 export async function handleDebugTxt(req: Request, env: Env): Promise<Response> {
-  // Only expose when DEBUG_LITE=1 (hard gate). Otherwise behave like unknown route.
   if (env.DEBUG_LITE !== "1") {
-    return new Response("not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders(), ...noCacheHeaders() } });
+    return new Response("not found", {
+      status: 404,
+      headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders(), ...noCacheHeaders() },
+    });
   }
 
   const url = new URL(req.url);
@@ -54,19 +56,21 @@ export async function handleDebugTxt(req: Request, env: Env): Promise<Response> 
 
   const sql = `SELECT ts,kind,data FROM debug_events ORDER BY ts ${orderSql}, id ${orderSql} LIMIT ?`;
 
-  let rawRows: unknown[][] = [];
+  let rows: any[] = [];
   try {
-    const v = (await env.DB.prepare(sql).bind(limit).raw({ columnNames: true })) as unknown;
-    if (Array.isArray(v)) rawRows = v as unknown[][];
+    const r = await env.DB.prepare(sql).bind(limit).all<any>();
+    rows = (r.results || []) as any[];
   } catch {
-    rawRows = [];
+    rows = [];
   }
 
-  if (rawRows.length === 0) {
-    rawRows = [["ts", "kind", "data"]];
+  const out: unknown[][] = [];
+  out.push(["ts", "kind", "data"]);
+  for (const row of rows) {
+    out.push([row.ts, row.kind, row.data]);
   }
 
-  const body = rowsToTsv(rawRows);
+  const body = rowsToTsv(out);
 
   return new Response(body, {
     status: 200,
