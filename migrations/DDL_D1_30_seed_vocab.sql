@@ -2,10 +2,10 @@
 -- Target: Cloudflare D1 (SQLite)
 
 -- q_state (DOC_ID 2PLT_20_QUEUE_STATE_VOCAB)
-INSERT OR REPLACE INTO vocab_q_state(q_state,name,meaning) VALUES
-  (0,'PENDING','Eligible for claim/processing.'),
-  (1,'DONE','Successfully processed and finalized (not eligible for claim).'),
-  (9,'DEAD','Abnormal termination / dead-letter (not eligible for claim).');
+INSERT OR REPLACE INTO vocab_q_state(name,legacy_code,meaning) VALUES
+  ('PENDING',0,'Eligible for claim/processing.'),
+  ('DONE',1,'Successfully processed and finalized (not eligible for claim).'),
+  ('DEAD',9,'Abnormal termination / dead-letter (not eligible for claim).');
 
 -- 2PLT state machine terminals (DOC_ID 2PLT_10_STATE_MACHINE)
 INSERT OR REPLACE INTO vocab_2plt_state(state,meaning) VALUES

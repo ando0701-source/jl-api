@@ -10,7 +10,7 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
   const busObj: any = x.bus_obj;
 
   // Force enqueue-time queue fields
-  const q_state = 0;
+  const q_state = "PENDING";
   const claimed_by = null;
   const claimed_at = null;
   const done_at = null;

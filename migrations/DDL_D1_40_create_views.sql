@@ -12,7 +12,7 @@ SELECT
   in_state, state, out_state,
   inserted_at
 FROM bus_messages
-WHERE q_state=0 AND claimed_by IS NULL;
+WHERE q_state='PENDING' AND claimed_by IS NULL;
 
 -- Lane time series
 CREATE VIEW IF NOT EXISTS v_lane_events AS

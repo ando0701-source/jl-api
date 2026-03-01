@@ -2,7 +2,7 @@
 -- Target: Cloudflare D1 (SQLite)
 
 -- Inbox polling (eligible work items)
--- NOTE: claim rule typically uses: q_state=0 AND claimed_by IS NULL.
+-- NOTE: claim rule typically uses: q_state='PENDING' AND claimed_by IS NULL.
 CREATE INDEX IF NOT EXISTS idx_inbox
   ON bus_messages(to_owner_id, q_state, bus_ts, bus_id);
 
@@ -12,7 +12,7 @@ CREATE INDEX IF NOT EXISTS idx_inbox_claim
 -- Partial index for the common dequeue path (fast)
 CREATE INDEX IF NOT EXISTS idx_inbox_pending
   ON bus_messages(to_owner_id, bus_ts, bus_id)
-  WHERE q_state=0 AND claimed_by IS NULL;
+  WHERE q_state='PENDING' AND claimed_by IS NULL;
 
 -- Lane history
 CREATE INDEX IF NOT EXISTS idx_lane

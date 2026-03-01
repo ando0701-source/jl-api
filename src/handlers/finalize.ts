@@ -1,10 +1,9 @@
 import { HttpError, jsonResponse } from "../lib/http";
 import { nowEpochSec } from "../lib/util";
-import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
 import { Env } from "../lib/types";
 import { readJson } from "../lib/http";
 
-function extractFinalizeInput(body: any): { busId: string; qState: number } {
+function extractFinalizeInput(body: any): { busId: string; qState: "DONE" | "DEAD" } {
   if (body == null || typeof body !== "object") {
     throw new HttpError(400, "invalid_body", "Body must be a JSON object");
   }
@@ -42,47 +41,29 @@ function extractFinalizeInput(body: any): { busId: string; qState: number } {
   }
 
   const busId = String(busIdVal);
-  const q = Number(qVal);
-  if (!Number.isFinite(q)) {
-    throw new HttpError(400, "invalid_q_state", "q_state must be a number", { q_state: qVal, path: qPath });
+  const q = String(qVal);
+  if (q !== "DONE" && q !== "DEAD") {
+    throw new HttpError(400, "invalid_q_state", "q_state must be \"DONE\" or \"DEAD\"", { q_state: qVal, path: qPath });
   }
-  return { busId, qState: q };
+  return { busId, qState: q as "DONE" | "DEAD" };
 }
 
 async function patchBusJsonFinalize(
   env: Env,
   busId: string,
-  qState: number,
+  qState: "DONE" | "DEAD",
   doneAt: number
 ): Promise<{ ok: boolean; method: string; error?: string }> {
   // Keep stored 2PLT_BUS/v1 JSON consistent with mutable DB columns.
-  // We update only schema fields (q_state, done_at) and never inject non-schema data.
+  // Update only schema fields (q_state, done_at).
   try {
-    // Try SQL json_set first (fast path, no JS parse). If unavailable, fall back to JS parse/update.
-    try {
-      const r = await env.DB.prepare(
-        `UPDATE bus_messages
-         SET bus_json = json_set(bus_json, '$.q_state', ?, '$.done_at', ?)
-         WHERE bus_id = ?`
-      ).bind(qState, doneAt, busId).run();
-      if ((r.meta?.changes ?? 0) > 0) {
-        return { ok: true, method: "sql_json_set" };
-      }
-      // If no change, continue to JS path for safety.
-    } catch (e: any) {
-      // ignore and fall back
-    }
-
     const row = await env.DB.prepare(`SELECT bus_json FROM bus_messages WHERE bus_id = ?`).bind(busId).first();
     if (!row || (row as any).bus_json == null) return { ok: false, method: "js_parse", error: "bus_json_missing" };
 
     const raw = String((row as any).bus_json);
     let busObj: any = JSON.parse(raw);
     if (typeof busObj === "string") busObj = JSON.parse(busObj);
-
-    if (!busObj || typeof busObj !== "object") {
-      return { ok: false, method: "js_parse", error: "bus_json_not_object" };
-    }
+    if (!busObj || typeof busObj !== "object") return { ok: false, method: "js_parse", error: "bus_json_not_object" };
 
     busObj.q_state = qState;
     busObj.done_at = doneAt;
@@ -91,16 +72,14 @@ async function patchBusJsonFinalize(
       .bind(JSON.stringify(busObj), busId)
       .run();
 
-    if ((r2.meta?.changes ?? 0) === 0) {
-      return { ok: false, method: "js_parse", error: "no_row_updated" };
-    }
+    if ((r2.meta?.changes ?? 0) === 0) return { ok: false, method: "js_parse", error: "no_row_updated" };
     return { ok: true, method: "js_parse" };
   } catch (e: any) {
     return { ok: false, method: "js_parse", error: String(e?.message ?? e) };
   }
 }
 
-export async function handleFinalize(req: Request, env: Env): Promise<Response> {
+export async function handleFinalizeexport async function handleFinalize(req: Request, env: Env): Promise<Response> {
 
   const body = await readJson(req);
 
@@ -109,8 +88,8 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
   // - snapshot from /dequeue: { ok, found, row: { bus_id, q_state, ... } }
   const { busId, qState } = extractFinalizeInput(body);
 
-  if (![1, 9].includes(qState)) {
-    throw new HttpError(400, "invalid_q_state", "q_state must be 1 (DONE) or 9 (DEAD)", { q_state: qState });
+  if (!(qState === "DONE" || qState === "DEAD")) {
+    throw new HttpError(400, "invalid_q_state", "q_state must be \"DONE\" or \"DEAD\"", { q_state: qState });
   }
 
   const doneAt = nowEpochSec();
@@ -126,7 +105,7 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
   }
 
   // Robust sync: JS patch (no JSON1 dependency)
-  const sync = await patchBusJsonFinalize(env, busId, qState, doneAt);
+  await patchBusJsonFinalize(env, busId, qState, doneAt);
 
   return jsonResponse({ ok: true, bus_id: busId, q_state: qState, done_at: doneAt });
 }

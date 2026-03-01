@@ -44,7 +44,7 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
       const r = await env.DB.prepare(
         `UPDATE bus_messages
          SET claimed_by = NULL, claimed_at = NULL
-         WHERE q_state = 0 AND done_at IS NULL
+         WHERE q_state = 'PENDING' AND done_at IS NULL
            AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL
            AND claimed_at <= ?`
       ).bind(cutoff).run();
@@ -61,7 +61,7 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
        SET claimed_by = ?, claimed_at = ?
        WHERE bus_id = (
          SELECT bus_id FROM bus_messages
-         WHERE q_state = 0 AND to_owner_id = ? AND claimed_by IS NULL
+         WHERE q_state = 'PENDING' AND to_owner_id = ? AND claimed_by IS NULL
          ORDER BY bus_ts ASC, inserted_at ASC
          LIMIT 1
        )
@@ -100,7 +100,7 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const picked = await env.DB.prepare(
         `SELECT bus_id FROM bus_messages
-         WHERE q_state = 0 AND to_owner_id = ? AND claimed_by IS NULL
+         WHERE q_state = 'PENDING' AND to_owner_id = ? AND claimed_by IS NULL
          ORDER BY bus_ts ASC, inserted_at ASC
          LIMIT 1`
       ).bind(ownerId).first();

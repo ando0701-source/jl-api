@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS bus_messages (
   schema_id TEXT NOT NULL CHECK (schema_id = '2PLT_BUS/v1'),
   bus_id    TEXT PRIMARY KEY,                 -- UUID recommended; used as idempotency key
   bus_ts    INTEGER NOT NULL,                 -- epoch seconds
-  q_state   INTEGER NOT NULL DEFAULT 0 CHECK (q_state IN (0,1,9)),
+  q_state   TEXT NOT NULL DEFAULT 'PENDING' CHECK (q_state IN ('PENDING','DONE','DEAD')),
 
   from_owner_id TEXT NOT NULL,
   to_owner_id   TEXT NOT NULL,
@@ -52,8 +52,8 @@ CREATE TABLE IF NOT EXISTS bus_messages (
 
 -- Optional: vocab tables (helpful for audits / UI / consistency checks)
 CREATE TABLE IF NOT EXISTS vocab_q_state (
-  q_state INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
+  name TEXT PRIMARY KEY,
+  legacy_code INTEGER NOT NULL UNIQUE,
   meaning TEXT NOT NULL
 );
 
