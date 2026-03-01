@@ -31,15 +31,13 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
     op_id: x.op_id,
     lane_id: x.lane_id,
     request_id: x.request_id,
+    in_state: x.in_state,
     state: x.state,
     out_state: x.out_state,
   });
 
-  // Idempotent insert by bus_id. If the insert is ignored, we must distinguish:
-  // - true duplicate (bus_id already exists)
-  // - constraint violation (CHECK/NOT NULL/etc) causing IGNORE with bus_id not inserted
   const stmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO bus_messages(
+    `INSERT INTO bus_messages(
       schema_id,bus_id,bus_ts,q_state,
       from_owner_id,to_owner_id,
       claimed_by,claimed_at,done_at,
@@ -58,32 +56,25 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
     bus_json
   );
 
-  const r: any = await stmt.run();
-  const changes = (r && r.meta && typeof r.meta.changes === "number") ? r.meta.changes : undefined;
-
-  if (changes === 1) {
-    await dbg(env, dbgEnabled, "enqueue_ok", { bus_id: x.bus_id, changes });
+  try {
+    const r: any = await stmt.run();
+    const changes = (r && r.meta && typeof r.meta.changes === "number") ? r.meta.changes : undefined;
+    await dbg(env, dbgEnabled, "enqueue_ok", { bus_id: x.bus_id, changes, meta: r && r.meta ? r.meta : null });
     return jsonResponse({ ok: true, bus_id: x.bus_id, duplicate: false, bus_ts: x.bus_ts, q_state });
+  } catch (e: any) {
+    // Distinguish duplicate (bus_id already exists) vs other constraint failures.
+    const exists = await env.DB.prepare("SELECT 1 AS one FROM bus_messages WHERE bus_id = ? LIMIT 1")
+      .bind(x.bus_id)
+      .all<any>();
+    const isDup = (exists.results || []).length > 0;
+
+    const errMsg = (e && (e.message || e.toString())) ? String(e.message || e.toString()) : "unknown_error";
+    await dbg(env, dbgEnabled, "enqueue_error", { bus_id: x.bus_id, is_duplicate: isDup, error: errMsg });
+
+    if (isDup) {
+      return jsonResponse({ ok: true, bus_id: x.bus_id, duplicate: true, bus_ts: x.bus_ts, q_state });
+    }
+
+    throw new HttpError(400, "enqueue_constraint_failed", "enqueue failed by DB constraint", { error: errMsg });
   }
-
-  // changes != 1: check whether row exists (true duplicate) or ignored insert (constraint)
-  const exists = await env.DB.prepare("SELECT 1 AS one FROM bus_messages WHERE bus_id = ? LIMIT 1")
-    .bind(x.bus_id)
-    .all<any>();
-
-  const isDup = (exists.results || []).length > 0;
-
-  await dbg(env, dbgEnabled, "enqueue_ignored", {
-    bus_id: x.bus_id,
-    changes,
-    is_duplicate: isDup,
-    meta: r && r.meta ? r.meta : null,
-  });
-
-  if (isDup) {
-    return jsonResponse({ ok: true, bus_id: x.bus_id, duplicate: true, bus_ts: x.bus_ts, q_state });
-  }
-
-  // Not inserted and not present => ignored due to constraint violation / invalid payload.
-  throw new HttpError(400, "enqueue_ignored", "enqueue ignored by DB constraints (likely invalid message fields)");
 }
