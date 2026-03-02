@@ -2,6 +2,7 @@ import { HttpError, jsonResponse } from "../lib/http";
 import { nowEpochSec } from "../lib/util";
 import { Env } from "../lib/types";
 import { readJson } from "../lib/http";
+import { appendBusEvent } from "../lib/events";
 
 function extractFinalizeInput(body: any): { busId: string; qState: "DONE" | "DEAD" } {
   if (body == null || typeof body !== "object") {
@@ -106,6 +107,21 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
 
   // Robust sync: JS patch (no JSON1 dependency)
   await patchBusJsonFinalize(env, busId, qState, doneAt);
+
+  // Optional: append transport ACK event (best-effort)
+  const ackKind = (body && typeof body === "object") ? String((body as any).ack_kind || "") : "";
+  const actorOwnerId = (body && typeof body === "object" && (body as any).actor_owner_id) ? String((body as any).actor_owner_id) : null;
+  const reason = (body && typeof body === "object" && (body as any).reason) ? String((body as any).reason) : null;
+  if (ackKind === "AUTO_FINALIZE_ACK") {
+    await appendBusEvent(env, {
+      event_code: "AUTO_FINALIZE_ACK",
+      bus_id: busId,
+      actor_owner_id: actorOwnerId,
+      data: { q_state: qState, reason },
+      event_ts: doneAt,
+    });
+  }
+
 
   return jsonResponse({ ok: true, bus_id: busId, q_state: qState, done_at: doneAt });
 }

@@ -38,10 +38,18 @@ export async function handleEventsTxt(req: Request, env: Env): Promise<Response>
   const order = parseOrder(url);
   const orderSql = order === "asc" ? "ASC" : "DESC";
 
-  const eventCode = (url.searchParams.get("event_code") || "LANE_MISMATCH").trim();
-  if (eventCode !== "LANE_MISMATCH") {
-    throw new HttpError(400, "unsupported_event_code", "Only LANE_MISMATCH is supported for now", { event_code: eventCode });
+  const rawEventCode = (url.searchParams.get("event_code") || "ALL").trim();
+  const eventCodes = rawEventCode === "" || rawEventCode.toUpperCase() === "ALL"
+    ? null
+    : rawEventCode.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  if (eventCodes && eventCodes.length > 20) {
+    throw new HttpError(400, "too_many_event_codes", "event_code list is too long", { count: eventCodes.length });
   }
+
+  const whereCode = eventCodes && eventCodes.length ? `WHERE e.event_code IN (${eventCodes.map(() => "?").join(",")})` : "";
+  const bindParams: any[] = [];
+  if (eventCodes && eventCodes.length) bindParams.push(...eventCodes);
+  bindParams.push(limit);
 
   const sql = `
 SELECT
@@ -51,21 +59,21 @@ SELECT
   c.message,
   e.event_ts,
   e.flow_owner_id,
+  e.lane_id,
   e.request_id,
   e.op_id,
-  e.request_bus_id,
-  e.expected_lane_id,
-  e.observed_lane_id,
-  e.response_from_owner_id,
-  e.response_to_owner_id,
-  e.response_bus_id
-FROM v_event_lane_mismatch e
+  e.bus_id,
+  e.actor_owner_id,
+  e.data
+FROM v_events_all e
 LEFT JOIN event_catalog c
   ON c.event_code = e.event_code
+${whereCode}
 ORDER BY e.event_ts ${orderSql}, e.event_id ${orderSql}
 LIMIT ?`;
 
-  const r = await env.DB.prepare(sql).bind(limit).all<any>();
+
+  const r = await env.DB.prepare(sql).bind(...bindParams).all<any>();
 
   const header = [
     "event_id",
@@ -74,32 +82,28 @@ LIMIT ?`;
     "message",
     "event_ts",
     "flow_owner_id",
+    "lane_id",
     "request_id",
     "op_id",
-    "request_bus_id",
-    "expected_lane_id",
-    "observed_lane_id",
-    "response_from_owner_id",
-    "response_to_owner_id",
-    "response_bus_id",
+    "bus_id",
+    "actor_owner_id",
+    "data",
   ].join("\t");
 
   const rows = (r.results || []).map((row: any) => {
-    const vals = [
+        const vals = [
       row.event_id,
       row.event_code,
       row.severity,
       row.message,
       row.event_ts,
       row.flow_owner_id,
+      row.lane_id,
       row.request_id,
       row.op_id,
-      row.request_bus_id,
-      row.expected_lane_id,
-      row.observed_lane_id,
-      row.response_from_owner_id,
-      row.response_to_owner_id,
-      row.response_bus_id,
+      row.bus_id,
+      row.actor_owner_id,
+      row.data,
     ];
     return vals.map(escapeTsvCell).join("\t");
   });

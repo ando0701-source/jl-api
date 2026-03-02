@@ -2,6 +2,7 @@ import { Env } from "../lib/types";
 import { readJson, jsonResponse, HttpError } from "../lib/http";
 import { validateBusLoose } from "../lib/validate";
 import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
+import { appendBusEvent } from "../lib/events";
 
 export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
   const dbgEnabled = isDebugLiteEnabled(req, env);
@@ -70,6 +71,32 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
 
     const errMsg = (e && (e.message || e.toString())) ? String(e.message || e.toString()) : "unknown_error";
     await dbg(env, dbgEnabled, "enqueue_error", { bus_id: x.bus_id, is_duplicate: isDup, error: errMsg });
+
+    // Append audit event (best-effort)
+    if (isDup) {
+      await appendBusEvent(env, {
+        event_code: "ENQUEUE_DUPLICATE",
+        bus_id: x.bus_id,
+        flow_owner_id: x.flow_owner_id,
+        lane_id: x.lane_id,
+        request_id: x.request_id,
+        op_id: x.op_id,
+        actor_owner_id: x.from_owner_id,
+        data: { error: errMsg },
+      });
+    } else {
+      await appendBusEvent(env, {
+        event_code: "ENQUEUE_CONSTRAINT_FAILED",
+        bus_id: x.bus_id,
+        flow_owner_id: x.flow_owner_id,
+        lane_id: x.lane_id,
+        request_id: x.request_id,
+        op_id: x.op_id,
+        actor_owner_id: x.from_owner_id,
+        data: { error: errMsg },
+      });
+    }
+
 
     if (isDup) {
       return jsonResponse({ ok: true, bus_id: x.bus_id, duplicate: true, bus_ts: x.bus_ts, q_state });

@@ -2,6 +2,7 @@ import { Env } from "../lib/types";
 import { HttpError, jsonResponse } from "../lib/http";
 import { nowEpochSec } from "../lib/util";
 import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
+import { appendBusEvent } from "../lib/events";
 
 async function patchBusJsonClaim(env: Env, busId: string, claimedBy: string, claimedAt: number): Promise<void> {
   // Keep stored 2PLT_BUS/v1 JSON consistent with mutable DB columns.
@@ -36,25 +37,80 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
   const debugEnabled = isDebugLiteEnabled(req, env);
 
   // Optional: reclaim expired claims (self-heal; avoids human SQL)
-  const ttlRaw = env.CLAIM_TTL_SEC;
-  const ttlSec = ttlRaw ? Number(ttlRaw) : 0;
-  if (Number.isFinite(ttlSec) && ttlSec > 0) {
-    const cutoff = now - Math.floor(ttlSec);
-    try {
-      const r = await env.DB.prepare(
-        `UPDATE bus_messages
-         SET claimed_by = NULL, claimed_at = NULL
-         WHERE q_state = 'PENDING' AND done_at IS NULL
-           AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL
-           AND claimed_at <= ?`
-      ).bind(cutoff).run();
-      await dbg(env, debugEnabled, "ttl_reclaim", { cutoff, changes: r.meta?.changes ?? 0 });
-    } catch (e: any) {
-      await dbg(env, debugEnabled, "ttl_reclaim_error", { message: String(e?.message ?? e) });
-    }
-  }
+// Reclaim is executed in bounded batches to keep bus_json consistency and allow event emission.
+const ttlRaw = env.CLAIM_TTL_SEC;
+const ttlSec = ttlRaw ? Number(ttlRaw) : 0;
+if (Number.isFinite(ttlSec) && ttlSec > 0) {
+  const cutoff = now - Math.floor(ttlSec);
+  const reclaimLimit = 200;
 
-  // Try single-statement claim+return first (SQLite RETURNING)
+  try {
+    const sel = await env.DB.prepare(
+      `SELECT bus_id, claimed_by, claimed_at, to_owner_id, flow_owner_id, lane_id, request_id, op_id
+       FROM bus_messages
+       WHERE q_state = 'PENDING' AND done_at IS NULL
+         AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL
+         AND claimed_at <= ?
+       ORDER BY claimed_at ASC, bus_id ASC
+       LIMIT ?`
+    ).bind(cutoff, reclaimLimit).all<any>();
+
+    const rows = (sel.results || []) as any[];
+    if (rows.length > 0) {
+      let reclaimed = 0;
+      for (const r of rows) {
+        const busId = String(r.bus_id);
+        const oldClaimedBy = (r.claimed_by == null) ? null : String(r.claimed_by);
+        const oldClaimedAt = (r.claimed_at == null) ? null : Number(r.claimed_at);
+
+        const upd = await env.DB.prepare(
+          `UPDATE bus_messages
+           SET claimed_by = NULL, claimed_at = NULL
+           WHERE bus_id = ?
+             AND q_state = 'PENDING' AND done_at IS NULL
+             AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL`
+        ).bind(busId).run();
+
+        if ((upd.meta?.changes ?? 0) === 0) continue;
+        reclaimed++;
+
+        // Best-effort: keep stored bus_json consistent with mutable columns.
+        try {
+          const row = await env.DB.prepare(`SELECT bus_json FROM bus_messages WHERE bus_id = ?`).bind(busId).first();
+          if (row && (row as any).bus_json != null) {
+            const busObj: any = JSON.parse(String((row as any).bus_json));
+            busObj.claimed_by = null;
+            busObj.claimed_at = null;
+            await env.DB.prepare(`UPDATE bus_messages SET bus_json = ? WHERE bus_id = ?`)
+              .bind(JSON.stringify(busObj), busId)
+              .run();
+          }
+        } catch {
+          // best-effort
+        }
+
+        // Append event for auditors (append-only)
+        await appendBusEvent(env, {
+          event_code: "CLAIM_RECLAIMED",
+          bus_id: busId,
+          flow_owner_id: r.flow_owner_id != null ? String(r.flow_owner_id) : null,
+          lane_id: r.lane_id != null ? String(r.lane_id) : null,
+          request_id: r.request_id != null ? String(r.request_id) : null,
+          op_id: r.op_id != null ? String(r.op_id) : null,
+          actor_owner_id: ownerId,
+          data: { ttl_sec: ttlSec, cutoff, old_claimed_by: oldClaimedBy, old_claimed_at: oldClaimedAt, to_owner_id: r.to_owner_id },
+        });
+      }
+
+      await dbg(env, debugEnabled, "ttl_reclaim", { cutoff, ttl_sec: ttlSec, limit: reclaimLimit, reclaimed });
+    }
+  } catch (e: any) {
+    await dbg(env, debugEnabled, "ttl_reclaim_error", { message: String(e?.message ?? e) });
+  }
+}
+
+
+// Try single-statement claim+return first (SQLite RETURNING)
   try {
     const row = await env.DB.prepare(
       `UPDATE bus_messages
