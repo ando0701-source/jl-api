@@ -93,6 +93,11 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
     throw new HttpError(400, "invalid_q_state", "q_state must be \"DONE\" or \"DEAD\"", { q_state: qState });
   }
 
+  // Snapshot before mutation (for audit evidence)
+  const beforeRow = await env.DB.prepare(
+    `SELECT q_state, done_at, claimed_by, claimed_at FROM bus_messages WHERE bus_id = ?`
+  ).bind(busId).first<any>();
+
   const doneAt = nowEpochSec();
 
   const r = await env.DB.prepare(
@@ -113,11 +118,21 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
   const actorOwnerId = (body && typeof body === "object" && (body as any).actor_owner_id) ? String((body as any).actor_owner_id) : null;
   const reason = (body && typeof body === "object" && (body as any).reason) ? String((body as any).reason) : null;
   if (ackKind === "AUTO_FINALIZE_ACK") {
+    const beforeQ = beforeRow && (beforeRow as any).q_state != null ? String((beforeRow as any).q_state) : null;
+    const beforeDoneAt = beforeRow && (beforeRow as any).done_at != null ? Number((beforeRow as any).done_at) : null;
+
     await appendBusEvent(env, {
       event_code: "AUTO_FINALIZE_ACK",
       bus_id: busId,
       actor_owner_id: actorOwnerId,
-      data: { q_state: qState, reason },
+      data: {
+        q_state: qState,
+        reason,
+        transition: {
+          q_state: { from: beforeQ, to: qState },
+          done_at: { from: beforeDoneAt, to: doneAt },
+        },
+      },
       event_ts: doneAt,
     });
   }

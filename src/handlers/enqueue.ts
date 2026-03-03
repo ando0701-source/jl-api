@@ -82,7 +82,7 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
         request_id: x.request_id,
         op_id: x.op_id,
         actor_owner_id: x.from_owner_id,
-        data: { error: errMsg },
+        data: { reason: "BUS_ID_ALREADY_EXISTS", lane_id: x.lane_id, request_id: x.request_id, to_owner_id: x.to_owner_id },
       });
     } else {
       await appendBusEvent(env, {
@@ -93,7 +93,7 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
         request_id: x.request_id,
         op_id: x.op_id,
         actor_owner_id: x.from_owner_id,
-        data: { error: errMsg },
+        data: { constraint: "DB_CONSTRAINT", reason: errMsg, lane_id: x.lane_id, request_id: x.request_id, to_owner_id: x.to_owner_id },
       });
     }
 

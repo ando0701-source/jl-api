@@ -98,7 +98,18 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
           request_id: r.request_id != null ? String(r.request_id) : null,
           op_id: r.op_id != null ? String(r.op_id) : null,
           actor_owner_id: ownerId,
-          data: { ttl_sec: ttlSec, cutoff, old_claimed_by: oldClaimedBy, old_claimed_at: oldClaimedAt, to_owner_id: r.to_owner_id },
+          data: {
+            reason: "CLAIM_TTL_EXPIRED",
+            claim: {
+              claimed_by: oldClaimedBy,
+              claimed_at: oldClaimedAt,
+              expired_at: cutoff,
+            },
+            transition: {
+              claimed_by: { from: oldClaimedBy, to: null },
+              claimed_at: { from: oldClaimedAt, to: null },
+            },
+          },
         });
       }
 
