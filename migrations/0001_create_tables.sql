@@ -49,20 +49,3 @@ CREATE TABLE IF NOT EXISTS bus_messages (
     (msg_type='RESPONSE' AND state IS NOT NULL AND out_state = state)
   )
 );
-
--- Optional: vocab tables (helpful for audits / UI / consistency checks)
-CREATE TABLE IF NOT EXISTS vocab_q_state (
-  name TEXT PRIMARY KEY,
-  legacy_code INTEGER NOT NULL UNIQUE,
-  meaning TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS vocab_2plt_state (
-  state TEXT PRIMARY KEY,
-  meaning TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS vocab_msg_type (
-  msg_type TEXT PRIMARY KEY,
-  meaning TEXT NOT NULL
-);
