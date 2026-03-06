@@ -55,8 +55,8 @@ export async function handleEventsTxt(req: Request, env: Env): Promise<Response>
 SELECT
   e.event_id,
   e.event_code,
-  COALESCE(bc.severity, c.severity) AS severity,
-  COALESCE(bc.message_template, c.message) AS message,
+  bc.severity AS severity,
+  bc.message_template AS message,
   e.event_ts,
   e.flow_owner_id,
   e.lane_id,
@@ -68,8 +68,6 @@ SELECT
 FROM v_events_all e
 LEFT JOIN bus_events_catalog bc
   ON bc.event_code = e.event_code
-LEFT JOIN event_catalog c
-  ON c.event_code = e.event_code
 ${whereCode}
 ORDER BY e.event_ts ${orderSql}, e.event_id ${orderSql}
 LIMIT ?`;

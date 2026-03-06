@@ -49,3 +49,6 @@ CREATE TABLE IF NOT EXISTS bus_messages (
     (msg_type='RESPONSE' AND state IS NOT NULL AND out_state = state)
   )
 );
+
+-- NOTE: Legacy vocab_* tables were removed.
+-- Canonical vocab is managed in vocab/vocab.tsv (outside DB).

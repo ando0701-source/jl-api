@@ -6,7 +6,7 @@
 CREATE VIEW IF NOT EXISTS v_event_response_correlation AS
 SELECT
   response_bus_id AS event_id,                          -- stable id (response bus_id)
-  correlation_status AS event_code,                     -- one of event_catalog codes
+  correlation_status AS event_code,                     -- one of bus_events_catalog event_code values
   response_bus_ts AS event_ts,
 
   request_flow_owner_id AS flow_owner_id,

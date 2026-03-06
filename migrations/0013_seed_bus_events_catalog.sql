@@ -32,6 +32,32 @@ INSERT OR IGNORE INTO bus_events_catalog(
     'enqueue failed by DB constraint (non-duplicate): bus_id={bus_id}'
   ),
 
+  -- response/request correlation mismatches (derived view; catalog drives severity/message)
+  ('LANE_MISMATCH','ERROR','BUS_MESSAGE',NULL,
+    '[]',
+    '["response_bus_id", "response_from_owner_id", "response_to_owner_id", "response_flow_owner_id", "response_lane_id", "response_request_id", "echo_request_bus_id", "request_bus_id", "request_bus_ts", "request_flow_owner_id", "request_lane_id", "request_id"]',
+    'RESPONSE lane_id does not match REQUEST lane_id referenced by echo_request_bus_id'
+  ),
+
+  ('REQUEST_ID_MISMATCH','ERROR','BUS_MESSAGE',NULL,
+    '[]',
+    '["response_bus_id", "response_from_owner_id", "response_to_owner_id", "response_flow_owner_id", "response_lane_id", "response_request_id", "echo_request_bus_id", "request_bus_id", "request_bus_ts", "request_flow_owner_id", "request_lane_id", "request_id"]',
+    'RESPONSE request_id does not match REQUEST request_id referenced by echo_request_bus_id'
+  ),
+
+  ('MISSING_ECHO_REQUEST_BUS_ID','ERROR','BUS_MESSAGE',NULL,
+    '[]',
+    '["response_bus_id", "response_from_owner_id", "response_to_owner_id", "response_flow_owner_id", "response_lane_id", "response_request_id", "echo_request_bus_id", "request_bus_id", "request_bus_ts", "request_flow_owner_id", "request_lane_id", "request_id"]',
+    'RESPONSE is missing contents.meta.echo_request_bus_id'
+  ),
+
+  ('ECHO_REQUEST_NOT_FOUND','ERROR','BUS_MESSAGE',NULL,
+    '[]',
+    '["response_bus_id", "response_from_owner_id", "response_to_owner_id", "response_flow_owner_id", "response_lane_id", "response_request_id", "echo_request_bus_id", "request_bus_id", "request_bus_ts", "request_flow_owner_id", "request_lane_id", "request_id"]',
+    'RESPONSE echo_request_bus_id not found in bus_messages'
+  ),
+
+
   -- stall detect -> act -> outcome (owner-scoped; data requirements are defined in vocab)
   ('BUS_STALL_DETECTED','WARN','OWNER',NULL,
     '["incident_id","detected_by","scope_kind","scope_owner_id","metrics.pending_count","metrics.oldest_age_sec","thresholds.pending_count","thresholds.oldest_age_sec"]',
