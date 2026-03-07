@@ -3,6 +3,8 @@ import { readJson, jsonResponse, HttpError } from "../lib/http";
 import { validateBusLoose } from "../lib/validate";
 import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
 import { appendBusEvent } from "../lib/events";
+import { appendBusAuditBestEffort } from "../lib/bus_audit";
+import { appendOwnerInboxEventBestEffort, putOwnerInboxNotificationBestEffort } from "../lib/inbox";
 
 export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
   const dbgEnabled = isDebugLiteEnabled(req, env);
@@ -60,6 +62,36 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
   try {
     const r: any = await stmt.run();
     const changes = (r && r.meta && typeof r.meta.changes === "number") ? r.meta.changes : undefined;
+
+    await appendBusAuditBestEffort(env, {
+      io: "SENT",
+      bus_id: x.bus_id,
+      actor_owner_id: x.from_owner_id,
+      peer_owner_id: x.to_owner_id,
+      content_json: bus_json,
+    });
+
+    const inbox = await putOwnerInboxNotificationBestEffort(env, {
+      to_owner_id: x.to_owner_id,
+      from_owner_id: x.from_owner_id,
+      bus_id: x.bus_id,
+      inbox_id: x.bus_id,
+      channel: "D1",
+    });
+
+    if (inbox.inserted) {
+      await appendOwnerInboxEventBestEffort(env, {
+        event_code: "INBOX_NOTIFY_PUT",
+        actor_owner_id: x.from_owner_id,
+        to_owner_id: x.to_owner_id,
+        from_owner_id: x.from_owner_id,
+        inbox_id: inbox.inbox_id,
+        bus_id: x.bus_id,
+        channel: "D1",
+        data: inbox.envelope,
+      });
+    }
+
     await dbg(env, dbgEnabled, "enqueue_ok", { bus_id: x.bus_id, changes, meta: r && r.meta ? r.meta : null });
     return jsonResponse({ ok: true, bus_id: x.bus_id, duplicate: false, bus_ts: x.bus_ts, q_state });
   } catch (e: any) {

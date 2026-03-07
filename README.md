@@ -14,6 +14,9 @@
 - POST `/enqueue` -> accepts `2PLT_BUS/v1` JSON, idempotent by `bus_id`
 - GET `/dequeue?owner_id=...(&claimed_by=...)` -> claims a pending message
 - POST `/finalize` body `{bus_id, q_state:"DONE"|"DEAD"}` (optionally include `actor_owner_id`, `ack_kind`, `reason`)
+- GET `/inbox/poll?owner_id=...(&limit=...&order=asc|desc)` -> pending owner inbox notifications
+- POST `/inbox/take` body `{to_owner_id, inbox_id|bus_id, take_mode?, note?}` -> marks one pending inbox row as DONE
+- POST `/inbox/ack` body `{to_owner_id, bus_id, ack_state, inbox_id?, note?}` -> marks inbox row DONE and appends ack event
 
 - GET `/logs.tsv?limit=...` -> **public** export of `bus_messages` as TSV (header included)
   - `limit` default 1000, max 5000 (clamped); invalid -> 400
@@ -30,7 +33,7 @@
 
 
 ## Env vars
-- `API_KEY`: required for /enqueue /dequeue /finalize
+- `API_KEY`: required for /enqueue /dequeue /finalize /inbox/poll /inbox/take /inbox/ack
 - `STEALTH_404`: "1" => unauthorized -> 404
 - `CLAIM_TTL_SEC`: optional (seconds). If set to a positive integer, `/dequeue` will auto-reclaim expired claims
   (self-heal without human SQL). A claim is considered expired when `claimed_at <= now - CLAIM_TTL_SEC`.
@@ -38,6 +41,7 @@
   - API writes minimal diagnostic events into D1 table `debug_events` (created on-demand)
   - public export endpoint: `GET/HEAD /debug.txt` (TSV body, Content-Type: text/plain)
   - when `DEBUG_LITE` is not "1", `/debug.txt` returns 404 and no debug events are written.
+- `INBOX_POLL_EMPTY_LOG`: optional. "1" enables best-effort `INBOX_POLL_EMPTY` events when `/inbox/poll` returns zero rows.
 
 ## Debug-lite (removal)
 Debug-lite is intentionally isolated:

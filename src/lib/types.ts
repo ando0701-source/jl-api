@@ -5,6 +5,7 @@ export interface Env {
   CLAIM_TTL_SEC?: string; // seconds; if set, dequeue will reclaim expired claims
   DEBUG_LITE?: string; // "1" enables debug lite (D1-backed) + /debug.txt
   EVENTS_LITE?: string; // "1" enables /events.txt (derived events view)
+  INBOX_POLL_EMPTY_LOG?: string; // "1" enables sampled INBOX_POLL_EMPTY logs on /inbox/poll empty result
 }
 
 export type JsonValue = any;

@@ -3,6 +3,7 @@ import { HttpError, jsonResponse } from "../lib/http";
 import { nowEpochSec } from "../lib/util";
 import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
 import { appendBusEvent } from "../lib/events";
+import { appendBusAuditBestEffort } from "../lib/bus_audit";
 
 async function patchBusJsonClaim(env: Env, busId: string, claimedBy: string, claimedAt: number): Promise<void> {
   // Keep stored 2PLT_BUS/v1 JSON consistent with mutable DB columns.
@@ -156,6 +157,17 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
       busObj = null;
     }
 
+    const contentJson = busObj ? JSON.stringify(busObj) : String((row as any).bus_json ?? "");
+    await appendBusAuditBestEffort(env, {
+      io: "RECEIVED",
+      bus_id: busId,
+      actor_owner_id: String((row as any).to_owner_id),
+      peer_owner_id: (row as any).from_owner_id != null ? String((row as any).from_owner_id) : null,
+      content_json: contentJson,
+      captured_at: now,
+      attempt_key: (row as any).claimed_at ?? now,
+    });
+
     return jsonResponse({
       ok: true,
       found: true,
@@ -207,6 +219,17 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
       } catch (_) {
         busObj = null;
       }
+
+      const contentJson = busObj ? JSON.stringify(busObj) : String((row as any).bus_json ?? "");
+      await appendBusAuditBestEffort(env, {
+        io: "RECEIVED",
+        bus_id: busId,
+        actor_owner_id: String((row as any).to_owner_id),
+        peer_owner_id: (row as any).from_owner_id != null ? String((row as any).from_owner_id) : null,
+        content_json: contentJson,
+        captured_at: now,
+        attempt_key: (row as any).claimed_at ?? now,
+      });
 
       return jsonResponse({
         ok: true,

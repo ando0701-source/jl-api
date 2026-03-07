@@ -8,6 +8,9 @@ import { handleLogsTsv } from "./handlers/logs_tsv";
 import { handleLogsTxt } from "./handlers/logs_txt";
 import { handleDebugTxt } from "./handlers/debug_txt";
 import { handleEventsTxt } from "./handlers/events_txt";
+import { handleInboxPoll } from "./handlers/inbox_poll";
+import { handleInboxTake } from "./handlers/inbox_take";
+import { handleInboxAck } from "./handlers/inbox_ack";
 
 export async function route(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
@@ -76,6 +79,21 @@ export async function route(req: Request, env: Env): Promise<Response> {
   if (path === "/finalize") {
     if (req.method !== "POST") throw new HttpError(405, "method_not_allowed", "Use POST");
     return await handleFinalize(req, env);
+  }
+
+  if (path === "/inbox/poll") {
+    if (req.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET");
+    return await handleInboxPoll(req, env);
+  }
+
+  if (path === "/inbox/take") {
+    if (req.method !== "POST") throw new HttpError(405, "method_not_allowed", "Use POST");
+    return await handleInboxTake(req, env);
+  }
+
+  if (path === "/inbox/ack") {
+    if (req.method !== "POST") throw new HttpError(405, "method_not_allowed", "Use POST");
+    return await handleInboxAck(req, env);
   }
 
   return textResponse("not found", 404);

@@ -14,5 +14,11 @@ export function authOrStealth404(req: Request, env: Env): void {
 }
 
 export function isKnownRoute(pathname: string): boolean {
-  return pathname === "/ping" || pathname === "/enqueue" || pathname === "/dequeue" || pathname === "/finalize";
+  return pathname === "/ping"
+    || pathname === "/enqueue"
+    || pathname === "/dequeue"
+    || pathname === "/finalize"
+    || pathname === "/inbox/poll"
+    || pathname === "/inbox/take"
+    || pathname === "/inbox/ack";
 }
