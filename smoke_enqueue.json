@@ -1,0 +1,23 @@
+{
+  "bus_ts": 1772872513,
+  "schema_id": "2PLT_BUS/v1",
+  "routing": {
+    "from_owner_id": "worker_primary",
+    "to_owner_id": "manager_primary"
+  },
+  "message": {
+    "msg_type": "REQUEST",
+    "schema_id": "2PLT_MESSAGE/v1",
+    "op_id": "SMOKE_POLL_TAKE_ACK",
+    "in_state": "READY",
+    "flow": {
+      "owner_id": "manager_primary",
+      "lane_id": "L_SMOKE"
+    },
+    "request_id": "REQ-2ef029289cb3",
+    "contents": {
+      "smoke": "poll_take_ack"
+    }
+  },
+  "bus_id": "65557199-473e-4461-8d36-bf661b1306a9"
+}
