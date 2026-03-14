@@ -1,5 +1,6 @@
 import { Env } from "../lib/types";
-import { HttpError, corsHeaders, noCacheHeaders } from "../lib/http";
+import { HttpError, corsHeaders, noCacheHeaders, API_ERROR_CODES } from "../lib/http";
+import { QUERY_PARAM_KEYS } from "../lib/query";
 
 function escapeTsvCell(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -26,22 +27,22 @@ async function getBusMessagesHeader(env: Env): Promise<string[]> {
 export async function handleLogsTsv(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
 
-  const limitRaw = url.searchParams.get("limit");
+  const limitRaw = url.searchParams.get(QUERY_PARAM_KEYS.LIMIT);
   let limit = 1000;
   if (limitRaw !== null && limitRaw !== "") {
     const n = Number(limitRaw);
     if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
-      throw new HttpError(400, "invalid_limit", "limit must be a positive integer");
+      throw new HttpError(400, API_ERROR_CODES.INVALID_LIMIT, "limit must be a positive integer");
     }
     limit = n;
   }
   if (limit > 5000) limit = 5000;
 
-  const orderRaw = (url.searchParams.get("order") || "asc").toLowerCase();
+  const orderRaw = (url.searchParams.get(QUERY_PARAM_KEYS.ORDER) || "asc").toLowerCase();
   let orderSql: "ASC" | "DESC" = "ASC";
   if (orderRaw === "desc") orderSql = "DESC";
   else if (orderRaw !== "asc") {
-    throw new HttpError(400, "invalid_order", "order must be 'asc' or 'desc'");
+    throw new HttpError(400, API_ERROR_CODES.INVALID_ORDER, "order must be 'asc' or 'desc'");
   }
 
   const sql = `SELECT * FROM bus_messages ORDER BY inserted_at ${orderSql}, bus_id ${orderSql} LIMIT ?`;

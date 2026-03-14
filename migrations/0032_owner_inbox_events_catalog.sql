@@ -1,6 +1,7 @@
--- DDL_D1_owner_inbox_events_catalog.sql
+-- 0032_owner_inbox_events_catalog.sql
 -- Materialized catalog of inbox event_code requirements and metadata.
 -- Canonical definitions live in vocab.tsv under owner_inbox_events.event_code.<EVENT_CODE>.
+-- One object per migration file: owner_inbox_events_catalog + dedicated indexes.
 -- Target: Cloudflare D1 (SQLite)
 
 CREATE TABLE IF NOT EXISTS owner_inbox_events_catalog (

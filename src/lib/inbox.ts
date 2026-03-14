@@ -1,5 +1,23 @@
 import { Env } from "./types";
 import { nowEpochSec, randomId, sha256Hex } from "./util";
+import { CHANNEL_KINDS, ChannelKind, BUS_QUEUE_STATES } from "./transport_literals";
+
+export const INBOX_ENVELOPE_SCHEMA_ID = "INBOX_ENVELOPE_V1" as const;
+export const INBOX_ACK_SCHEMA_ID = "INBOX_ACK_V1" as const;
+export const INBOX_TAKE_SCHEMA_ID = "INBOX_TAKE_V1" as const;
+export const INBOX_POLL_EMPTY_SCHEMA_ID = "INBOX_POLL_EMPTY_V1" as const;
+
+export const INBOX_ACK_STATES = ["DONE", "QUARANTINED"] as const;
+export type InboxAckState = typeof INBOX_ACK_STATES[number];
+
+export const INBOX_TAKE_MODES = ["POLL", "LONGPOLL", CHANNEL_KINDS.WEBHOOK] as const;
+export type InboxTakeMode = typeof INBOX_TAKE_MODES[number];
+
+export type InboxSchemaId =
+  | typeof INBOX_ENVELOPE_SCHEMA_ID
+  | typeof INBOX_ACK_SCHEMA_ID
+  | typeof INBOX_TAKE_SCHEMA_ID
+  | typeof INBOX_POLL_EMPTY_SCHEMA_ID;
 
 export type OwnerInboxEventCode = "INBOX_NOTIFY_PUT" | "INBOX_TAKE" | "INBOX_ACK" | "INBOX_POLL_EMPTY";
 
@@ -10,13 +28,13 @@ export type OwnerInboxEventInput = {
   from_owner_id?: string | null;
   inbox_id?: string | null;
   bus_id?: string | null;
-  channel?: "D1" | "WEBHOOK";
+  channel?: ChannelKind;
   data: unknown;
   event_ts?: number | null;
 };
 
 export type InboxEnvelopeV1 = {
-  schema_id: "INBOX_ENVELOPE_V1";
+  schema_id: typeof INBOX_ENVELOPE_SCHEMA_ID;
   kind: "MESSAGE_AVAILABLE";
   to_owner_id: string;
   bus_id: string;
@@ -43,7 +61,7 @@ export async function appendOwnerInboxEventBestEffort(env: Env, e: OwnerInboxEve
       e.from_owner_id ?? null,
       e.inbox_id ?? null,
       e.bus_id ?? null,
-      e.channel ?? "D1",
+      e.channel ?? CHANNEL_KINDS.D1,
       dataJson
     ).run();
   } catch {
@@ -58,7 +76,7 @@ export type PutInboxNotificationInput = {
   message?: unknown;
   note?: string | null;
   inbox_id?: string | null;
-  channel?: "D1" | "WEBHOOK";
+  channel?: ChannelKind;
   inbox_ts?: number | null;
 };
 
@@ -76,7 +94,7 @@ export async function putOwnerInboxNotificationBestEffort(
   const inboxId = i.inbox_id ? String(i.inbox_id) : String(i.bus_id);
 
   const envelope: InboxEnvelopeV1 = {
-    schema_id: "INBOX_ENVELOPE_V1",
+    schema_id: INBOX_ENVELOPE_SCHEMA_ID,
     kind: "MESSAGE_AVAILABLE",
     to_owner_id: String(i.to_owner_id),
     bus_id: String(i.bus_id),
@@ -97,8 +115,8 @@ export async function putOwnerInboxNotificationBestEffort(
       inboxTs,
       envelope.to_owner_id,
       envelope.from_owner_id ?? null,
-      i.channel ?? "D1",
-      "PENDING",
+      i.channel ?? CHANNEL_KINDS.D1,
+      BUS_QUEUE_STATES.PENDING,
       envelope.bus_id,
       contentJson,
       contentHash

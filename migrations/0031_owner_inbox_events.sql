@@ -1,5 +1,6 @@
--- DDL_D1_77_owner_inbox_events.sql
+-- 0031_owner_inbox_events.sql
 -- Append-only operational events for inbox lifecycle (notify/take/ack/poll).
+-- One object per migration file: owner_inbox_events.
 -- Target: Cloudflare D1 (SQLite)
 
 CREATE TABLE IF NOT EXISTS owner_inbox_events (

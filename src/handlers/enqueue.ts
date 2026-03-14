@@ -1,10 +1,12 @@
 import { Env } from "../lib/types";
-import { readJson, jsonResponse, HttpError } from "../lib/http";
+import { readJson, jsonResponse, HttpError, API_ERROR_CODES } from "../lib/http";
 import { validateBusLoose } from "../lib/validate";
 import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
-import { appendBusEvent } from "../lib/events";
+import { DEBUG_EVENT_KIND } from "../lib/debug_events";
+import { appendBusEvent, BUS_EVENT_CODES, ENQUEUE_CONSTRAINT_KINDS, ENQUEUE_DUPLICATE_REASONS } from "../lib/events";
 import { appendBusAuditBestEffort } from "../lib/bus_audit";
 import { appendOwnerInboxEventBestEffort, putOwnerInboxNotificationBestEffort } from "../lib/inbox";
+import { BUS_QUEUE_STATES, CHANNEL_KINDS } from "../lib/transport_literals";
 
 export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
   const dbgEnabled = isDebugLiteEnabled(req, env);
@@ -16,7 +18,7 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
   const busObj: any = x.bus_obj;
 
   // Force enqueue-time queue fields
-  const q_state = "PENDING";
+  const q_state = BUS_QUEUE_STATES.PENDING;
   const claimed_by = null;
   const claimed_at = null;
   const done_at = null;
@@ -28,7 +30,7 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
 
   const bus_json = JSON.stringify(busObj);
 
-  await dbg(env, dbgEnabled, "enqueue_in", {
+  await dbg(env, dbgEnabled, DEBUG_EVENT_KIND.ENQUEUE_IN, {
     bus_id: x.bus_id,
     msg_type: x.msg_type,
     op_id: x.op_id,
@@ -76,7 +78,7 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
       from_owner_id: x.from_owner_id,
       bus_id: x.bus_id,
       inbox_id: x.bus_id,
-      channel: "D1",
+      channel: CHANNEL_KINDS.D1,
     });
 
     if (inbox.inserted) {
@@ -87,12 +89,12 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
         from_owner_id: x.from_owner_id,
         inbox_id: inbox.inbox_id,
         bus_id: x.bus_id,
-        channel: "D1",
+        channel: CHANNEL_KINDS.D1,
         data: inbox.envelope,
       });
     }
 
-    await dbg(env, dbgEnabled, "enqueue_ok", { bus_id: x.bus_id, changes, meta: r && r.meta ? r.meta : null });
+    await dbg(env, dbgEnabled, DEBUG_EVENT_KIND.ENQUEUE_OK, { bus_id: x.bus_id, changes, meta: r && r.meta ? r.meta : null });
     return jsonResponse({ ok: true, bus_id: x.bus_id, duplicate: false, bus_ts: x.bus_ts, q_state });
   } catch (e: any) {
     // Distinguish duplicate (bus_id already exists) vs other constraint failures.
@@ -102,30 +104,30 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
     const isDup = (exists.results || []).length > 0;
 
     const errMsg = (e && (e.message || e.toString())) ? String(e.message || e.toString()) : "unknown_error";
-    await dbg(env, dbgEnabled, "enqueue_error", { bus_id: x.bus_id, is_duplicate: isDup, error: errMsg });
+    await dbg(env, dbgEnabled, DEBUG_EVENT_KIND.ENQUEUE_ERROR, { bus_id: x.bus_id, is_duplicate: isDup, error: errMsg });
 
     // Append audit event (best-effort)
     if (isDup) {
       await appendBusEvent(env, {
-        event_code: "ENQUEUE_DUPLICATE",
+        event_code: BUS_EVENT_CODES.ENQUEUE_DUPLICATE,
         bus_id: x.bus_id,
         flow_owner_id: x.flow_owner_id,
         lane_id: x.lane_id,
         request_id: x.request_id,
         op_id: x.op_id,
         actor_owner_id: x.from_owner_id,
-        data: { reason: "BUS_ID_ALREADY_EXISTS", lane_id: x.lane_id, request_id: x.request_id, to_owner_id: x.to_owner_id },
+        data: { reason: ENQUEUE_DUPLICATE_REASONS[0], lane_id: x.lane_id, request_id: x.request_id, to_owner_id: x.to_owner_id },
       });
     } else {
       await appendBusEvent(env, {
-        event_code: "ENQUEUE_CONSTRAINT_FAILED",
+        event_code: BUS_EVENT_CODES.ENQUEUE_CONSTRAINT_FAILED,
         bus_id: x.bus_id,
         flow_owner_id: x.flow_owner_id,
         lane_id: x.lane_id,
         request_id: x.request_id,
         op_id: x.op_id,
         actor_owner_id: x.from_owner_id,
-        data: { constraint: "DB_CONSTRAINT", reason: errMsg, lane_id: x.lane_id, request_id: x.request_id, to_owner_id: x.to_owner_id },
+        data: { constraint: ENQUEUE_CONSTRAINT_KINDS[0], reason: errMsg, lane_id: x.lane_id, request_id: x.request_id, to_owner_id: x.to_owner_id },
       });
     }
 
@@ -134,6 +136,6 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
       return jsonResponse({ ok: true, bus_id: x.bus_id, duplicate: true, bus_ts: x.bus_ts, q_state });
     }
 
-    throw new HttpError(400, "enqueue_constraint_failed", "enqueue failed by DB constraint", { error: errMsg });
+    throw new HttpError(400, API_ERROR_CODES.ENQUEUE_CONSTRAINT_FAILED, "enqueue failed by DB constraint", { error: errMsg });
   }
 }

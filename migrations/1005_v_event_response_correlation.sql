@@ -1,6 +1,7 @@
--- DDL_D1_71_event_response_correlation_events.sql
+-- 1005_v_event_response_correlation.sql
 -- Derived events for response/request correlation mismatches.
--- Uses v_response_correlation (0005) and emits one event row per RESPONSE with mismatch.
+-- Uses v_response_correlation (1004) and emits one event row per RESPONSE with mismatch.
+-- One object per migration file: v_event_response_correlation.
 -- Target: Cloudflare D1 (SQLite)
 
 CREATE VIEW IF NOT EXISTS v_event_response_correlation AS

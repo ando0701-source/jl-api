@@ -1,5 +1,7 @@
 import { Env } from "../lib/types";
-import { HttpError, corsHeaders, noCacheHeaders } from "../lib/http";
+import { HttpError, corsHeaders, noCacheHeaders, API_ERROR_CODES } from "../lib/http";
+import { ENV_CONFIG_KEYS, ENV_SWITCH_ENABLED } from "../lib/config";
+import { QUERY_PARAM_KEYS } from "../lib/query";
 
 function escapeTsvCell(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -27,7 +29,7 @@ async function ensureTable(env: Env): Promise<void> {
 }
 
 export async function handleDebugTxt(req: Request, env: Env): Promise<Response> {
-  if (env.DEBUG_LITE !== "1") {
+  if (env[ENV_CONFIG_KEYS.DEBUG_LITE] !== ENV_SWITCH_ENABLED) {
     return new Response("not found", {
       status: 404,
       headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders(), ...noCacheHeaders() },
@@ -36,21 +38,21 @@ export async function handleDebugTxt(req: Request, env: Env): Promise<Response> 
 
   const url = new URL(req.url);
 
-  const limitRaw = url.searchParams.get("limit");
+  const limitRaw = url.searchParams.get(QUERY_PARAM_KEYS.LIMIT);
   let limit = 500;
   if (limitRaw !== null && limitRaw !== "") {
     const n = Number(limitRaw);
     if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
-      throw new HttpError(400, "invalid_limit", "limit must be a positive integer");
+      throw new HttpError(400, API_ERROR_CODES.INVALID_LIMIT, "limit must be a positive integer");
     }
     limit = n;
   }
   if (limit > 5000) limit = 5000;
 
-  const orderRaw = (url.searchParams.get("order") || "asc").toLowerCase();
+  const orderRaw = (url.searchParams.get(QUERY_PARAM_KEYS.ORDER) || "asc").toLowerCase();
   let orderSql: "ASC" | "DESC" = "ASC";
   if (orderRaw === "desc") orderSql = "DESC";
-  else if (orderRaw !== "asc") throw new HttpError(400, "invalid_order", "order must be 'asc' or 'desc'");
+  else if (orderRaw !== "asc") throw new HttpError(400, API_ERROR_CODES.INVALID_ORDER, "order must be 'asc' or 'desc'");
 
   await ensureTable(env);
 

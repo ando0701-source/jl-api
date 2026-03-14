@@ -1,5 +1,7 @@
 import { Env } from "../lib/types";
-import { HttpError, corsHeaders, noCacheHeaders } from "../lib/http";
+import { HttpError, corsHeaders, noCacheHeaders, API_ERROR_CODES } from "../lib/http";
+import { ENV_CONFIG_KEYS, ENV_SWITCH_ENABLED } from "../lib/config";
+import { QUERY_PARAM_KEYS } from "../lib/query";
 
 function escapeTsvCell(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -12,7 +14,7 @@ function escapeTsvCell(v: unknown): string {
 }
 
 function parseLimit(url: URL, def: number, max: number): number {
-  const raw = url.searchParams.get("limit");
+  const raw = url.searchParams.get(QUERY_PARAM_KEYS.LIMIT);
   if (!raw) return def;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return def;
@@ -20,13 +22,13 @@ function parseLimit(url: URL, def: number, max: number): number {
 }
 
 function parseOrder(url: URL): "asc" | "desc" {
-  const o = (url.searchParams.get("order") || "").toLowerCase();
+  const o = (url.searchParams.get(QUERY_PARAM_KEYS.ORDER) || "").toLowerCase();
   return o === "asc" ? "asc" : "desc";
 }
 
 export async function handleEventsTxt(req: Request, env: Env): Promise<Response> {
   // Public, but hard-gated. Use either EVENTS_LITE=1 or DEBUG_LITE=1.
-  if (env.EVENTS_LITE !== "1" && env.DEBUG_LITE !== "1") {
+  if (env[ENV_CONFIG_KEYS.EVENTS_LITE] !== ENV_SWITCH_ENABLED && env[ENV_CONFIG_KEYS.DEBUG_LITE] !== ENV_SWITCH_ENABLED) {
     return new Response("not found", {
       status: 404,
       headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders(), ...noCacheHeaders() },
@@ -38,12 +40,12 @@ export async function handleEventsTxt(req: Request, env: Env): Promise<Response>
   const order = parseOrder(url);
   const orderSql = order === "asc" ? "ASC" : "DESC";
 
-  const rawEventCode = (url.searchParams.get("event_code") || "ALL").trim();
+  const rawEventCode = (url.searchParams.get(QUERY_PARAM_KEYS.EVENT_CODE) || "ALL").trim();
   const eventCodes = rawEventCode === "" || rawEventCode.toUpperCase() === "ALL"
     ? null
     : rawEventCode.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
   if (eventCodes && eventCodes.length > 20) {
-    throw new HttpError(400, "too_many_event_codes", "event_code list is too long", { count: eventCodes.length });
+    throw new HttpError(400, API_ERROR_CODES.TOO_MANY_EVENT_CODES, "event_code list is too long", { count: eventCodes.length });
   }
 
   const whereCode = eventCodes && eventCodes.length ? `WHERE e.event_code IN (${eventCodes.map(() => "?").join(",")})` : "";

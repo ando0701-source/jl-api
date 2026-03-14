@@ -1,5 +1,6 @@
--- DDL_D1_76_owner_inbox.sql
+-- 0030_owner_inbox.sql
 -- Unified inbox for all owners (worker/manager) storing notifications (pointer + optional inline snapshot).
+-- One object per migration file: owner_inbox + dedicated indexes.
 -- Target: Cloudflare D1 (SQLite)
 
 CREATE TABLE IF NOT EXISTS owner_inbox (

@@ -1,5 +1,6 @@
--- DDL_D1_75_bus_audit.sql
+-- 0020_bus_audit.sql
 -- Raw I/O audit table for storing original bus JSON payloads (append-only).
+-- One object per migration file: bus_audit + dedicated indexes.
 -- Target: Cloudflare D1 (SQLite)
 
 CREATE TABLE IF NOT EXISTS bus_audit (

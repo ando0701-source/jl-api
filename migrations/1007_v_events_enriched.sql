@@ -1,6 +1,7 @@
--- DDL_D1_78_events_enriched_view.sql
+-- 1007_v_events_enriched.sql
 -- Enriched events view: v_events_all + bus_events_catalog (materialized vocab) -> audit-friendly shape.
 -- Keeps /events.txt and ad-hoc SQL aligned: events -> catalog join -> output.
+-- One object per migration file: v_events_enriched.
 -- Target: Cloudflare D1 (SQLite)
 
 DROP VIEW IF EXISTS v_events_enriched;

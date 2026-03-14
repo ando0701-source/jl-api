@@ -1,4 +1,7 @@
 import { Env } from "./types";
+import { DebugEventKind } from "./debug_events";
+import { ENV_CONFIG_KEYS, ENV_SWITCH_ENABLED } from "./config";
+import { QUERY_PARAM_KEYS } from "./query";
 
 async function ensureDebugTable(env: Env): Promise<void> {
   await env.DB.prepare(
@@ -21,12 +24,12 @@ function uuidLike(): string {
 }
 
 export function isDebugLiteEnabled(req: Request, env: Env): boolean {
-  if (env.DEBUG_LITE === "1") return true;
+  if (env[ENV_CONFIG_KEYS.DEBUG_LITE] === ENV_SWITCH_ENABLED) return true;
   const url = new URL(req.url);
-  return url.searchParams.get("debug") === "1";
+  return url.searchParams.get(QUERY_PARAM_KEYS.DEBUG) === "1";
 }
 
-export async function dbg(env: Env, enabled: boolean, kind: string, obj: unknown): Promise<void> {
+export async function dbg(env: Env, enabled: boolean, kind: DebugEventKind, obj: unknown): Promise<void> {
   if (!enabled) return;
   try {
     await ensureDebugTable(env);

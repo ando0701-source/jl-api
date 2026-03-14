@@ -1,12 +1,14 @@
-import { HttpError, jsonResponse } from "../lib/http";
+import { HttpError, jsonResponse, API_ERROR_CODES } from "../lib/http";
 import { nowEpochSec } from "../lib/util";
 import { Env } from "../lib/types";
 import { readJson } from "../lib/http";
-import { appendBusEvent } from "../lib/events";
+import { appendBusEvent, BUS_EVENT_CODES } from "../lib/events";
 
-function extractFinalizeInput(body: any): { busId: string; qState: "DONE" | "DEAD" } {
+import { BUS_ACK_KINDS, BUS_QUEUE_STATES, BusAckKind, BusFinalQueueState, isBusFinalQueueState } from "../lib/transport_literals";
+
+function extractFinalizeInput(body: any): { busId: string; qState: BusFinalQueueState } {
   if (body == null || typeof body !== "object") {
-    throw new HttpError(400, "invalid_body", "Body must be a JSON object");
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "Body must be a JSON object");
   }
 
   const candidates: Array<{ obj: any; label: string }> = [
@@ -34,7 +36,7 @@ function extractFinalizeInput(body: any): { busId: string; qState: "DONE" | "DEA
   if (busIdVal === undefined || busIdVal === null || busIdVal === "") missing.push("bus_id");
   if (qVal === undefined || qVal === null || qVal === "") missing.push("q_state");
   if (missing.length) {
-    throw new HttpError(400, "missing_fields", "Missing required fields", {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "Missing required fields", {
       missing,
       searched: candidates.map((c) => c.label),
       found_paths: { bus_id: busIdPath, q_state: qPath },
@@ -43,16 +45,16 @@ function extractFinalizeInput(body: any): { busId: string; qState: "DONE" | "DEA
 
   const busId = String(busIdVal);
   const q = String(qVal);
-  if (q !== "DONE" && q !== "DEAD") {
-    throw new HttpError(400, "invalid_q_state", "q_state must be \"DONE\" or \"DEAD\"", { q_state: qVal, path: qPath });
+  if (!isBusFinalQueueState(q)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_Q_STATE, `q_state must be "${BUS_QUEUE_STATES.DONE}" or "${BUS_QUEUE_STATES.DEAD}"`, { q_state: qVal, path: qPath });
   }
-  return { busId, qState: q as "DONE" | "DEAD" };
+  return { busId, qState: q as BusFinalQueueState };
 }
 
 async function patchBusJsonFinalize(
   env: Env,
   busId: string,
-  qState: "DONE" | "DEAD",
+  qState: BusFinalQueueState,
   doneAt: number
 ): Promise<{ ok: boolean; method: string; error?: string }> {
   // Keep stored 2PLT_BUS/v1 JSON consistent with mutable DB columns.
@@ -89,8 +91,8 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
   // - snapshot from /dequeue: { ok, found, row: { bus_id, q_state, ... } }
   const { busId, qState } = extractFinalizeInput(body);
 
-  if (!(qState === "DONE" || qState === "DEAD")) {
-    throw new HttpError(400, "invalid_q_state", "q_state must be \"DONE\" or \"DEAD\"", { q_state: qState });
+  if (!isBusFinalQueueState(qState)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_Q_STATE, `q_state must be "${BUS_QUEUE_STATES.DONE}" or "${BUS_QUEUE_STATES.DEAD}"`, { q_state: qState });
   }
 
   // Snapshot before mutation (for audit evidence)
@@ -107,22 +109,22 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
   ).bind(qState, doneAt, busId).run();
 
   if ((r.meta?.changes ?? 0) === 0) {
-    throw new HttpError(404, "not_found", "bus_id not found", { bus_id: busId });
+    throw new HttpError(404, API_ERROR_CODES.NOT_FOUND, "bus_id not found", { bus_id: busId });
   }
 
   // Robust sync: JS patch (no JSON1 dependency)
   await patchBusJsonFinalize(env, busId, qState, doneAt);
 
   // Optional: append transport ACK event (best-effort)
-  const ackKind = (body && typeof body === "object") ? String((body as any).ack_kind || "") : "";
+  const ackKind = ((body && typeof body === "object") ? String((body as any).ack_kind || "") : "") as BusAckKind | "";
   const actorOwnerId = (body && typeof body === "object" && (body as any).actor_owner_id) ? String((body as any).actor_owner_id) : null;
   const reason = (body && typeof body === "object" && (body as any).reason) ? String((body as any).reason) : null;
-  if (ackKind === "AUTO_FINALIZE_ACK") {
+  if (ackKind === BUS_ACK_KINDS.AUTO_FINALIZE_ACK) {
     const beforeQ = beforeRow && (beforeRow as any).q_state != null ? String((beforeRow as any).q_state) : null;
     const beforeDoneAt = beforeRow && (beforeRow as any).done_at != null ? Number((beforeRow as any).done_at) : null;
 
     await appendBusEvent(env, {
-      event_code: "AUTO_FINALIZE_ACK",
+      event_code: BUS_EVENT_CODES.AUTO_FINALIZE_ACK,
       bus_id: busId,
       actor_owner_id: actorOwnerId,
       data: {

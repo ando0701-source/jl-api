@@ -1,10 +1,44 @@
 import { JsonValue } from "./types";
 
+export const API_ERROR_CODES = {
+  BODY_TOO_LARGE: "body_too_large",
+  EMPTY_BODY: "empty_body",
+  ENQUEUE_CONSTRAINT_FAILED: "enqueue_constraint_failed",
+  INCONSISTENT_STATE: "inconsistent_state",
+  INTERNAL_ERROR: "internal_error",
+  INVALID_ACK_STATE: "invalid_ack_state",
+  INVALID_BODY: "invalid_body",
+  INVALID_BUS_TS: "invalid_bus_ts",
+  INVALID_JSON: "invalid_json",
+  INVALID_LIMIT: "invalid_limit",
+  INVALID_MESSAGE_SCHEMA_ID: "invalid_message_schema_id",
+  INVALID_MSG_TYPE: "invalid_msg_type",
+  INVALID_ORDER: "invalid_order",
+  INVALID_Q_STATE: "invalid_q_state",
+  INVALID_SCHEMA_ID: "invalid_schema_id",
+  INVALID_TAKE_MODE: "invalid_take_mode",
+  METHOD_NOT_ALLOWED: "method_not_allowed",
+  MISSING_ACK_STATE: "missing_ack_state",
+  MISSING_BUS_ID: "missing_bus_id",
+  MISSING_CONTENTS: "missing_contents",
+  MISSING_FIELDS: "missing_fields",
+  MISSING_OWNER_ID: "missing_owner_id",
+  MISSING_TARGET: "missing_target",
+  MISSING_TO_OWNER_ID: "missing_to_owner_id",
+  NOT_FOUND: "not_found",
+  OUT_STATE_MISMATCH: "out_state_mismatch",
+  ROUTING_FLOW_MISMATCH: "routing_flow_mismatch",
+  TOO_MANY_EVENT_CODES: "too_many_event_codes",
+  UNAUTHORIZED: "unauthorized",
+} as const;
+
+export type ApiErrorCode = (typeof API_ERROR_CODES)[keyof typeof API_ERROR_CODES];
+
 export class HttpError extends Error {
   status: number;
-  code: string;
+  code: ApiErrorCode;
   details?: unknown;
-  constructor(status: number, code: string, message: string, details?: unknown) {
+  constructor(status: number, code: ApiErrorCode, message: string, details?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
@@ -63,8 +97,8 @@ function stripUtf8Bom(s: string): string {
 
 export async function readJson(req: Request, maxBytes = 1024 * 1024): Promise<JsonValue> {
   const text = stripUtf8Bom(await req.text());
-  if (!text) throw new HttpError(400, "empty_body", "Request body is empty");
-  if (text.length > maxBytes) throw new HttpError(413, "body_too_large", "Request body is too large", { maxBytes });
+  if (!text) throw new HttpError(400, API_ERROR_CODES.EMPTY_BODY, "Request body is empty");
+  if (text.length > maxBytes) throw new HttpError(413, API_ERROR_CODES.BODY_TOO_LARGE, "Request body is too large", { maxBytes });
 
   // Normal JSON
   try {
@@ -80,6 +114,6 @@ export async function readJson(req: Request, maxBytes = 1024 * 1024): Promise<Js
     } catch {
       // ignore
     }
-    throw new HttpError(400, "invalid_json", "Request body is not valid JSON");
+    throw new HttpError(400, API_ERROR_CODES.INVALID_JSON, "Request body is not valid JSON");
   }
 }

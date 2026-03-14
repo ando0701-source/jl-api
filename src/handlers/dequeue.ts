@@ -1,9 +1,13 @@
 import { Env } from "../lib/types";
-import { HttpError, jsonResponse } from "../lib/http";
+import { HttpError, jsonResponse, API_ERROR_CODES } from "../lib/http";
 import { nowEpochSec } from "../lib/util";
 import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
-import { appendBusEvent } from "../lib/events";
+import { DEBUG_EVENT_KIND } from "../lib/debug_events";
+import { appendBusEvent, BUS_EVENT_CODES, CLAIM_RECLAIM_REASONS } from "../lib/events";
 import { appendBusAuditBestEffort } from "../lib/bus_audit";
+import { ENV_CONFIG_KEYS } from "../lib/config";
+import { QUERY_PARAM_KEYS } from "../lib/query";
+import { BUS_QUEUE_STATES } from "../lib/transport_literals";
 
 async function patchBusJsonClaim(env: Env, busId: string, claimedBy: string, claimedAt: number): Promise<void> {
   // Keep stored 2PLT_BUS/v1 JSON consistent with mutable DB columns.
@@ -29,17 +33,17 @@ async function patchBusJsonClaim(env: Env, busId: string, claimedBy: string, cla
 
 export async function handleDequeue(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
-  const ownerId = url.searchParams.get("owner_id");
-  if (!ownerId) throw new HttpError(400, "missing_owner_id", "owner_id is required");
+  const ownerId = url.searchParams.get(QUERY_PARAM_KEYS.OWNER_ID);
+  if (!ownerId) throw new HttpError(400, API_ERROR_CODES.MISSING_OWNER_ID, "owner_id is required");
 
-  const claimedBy = url.searchParams.get("claimed_by") || ownerId;
+  const claimedBy = url.searchParams.get(QUERY_PARAM_KEYS.CLAIMED_BY) || ownerId;
   const now = nowEpochSec();
 
   const debugEnabled = isDebugLiteEnabled(req, env);
 
   // Optional: reclaim expired claims (self-heal; avoids human SQL)
 // Reclaim is executed in bounded batches to keep bus_json consistency and allow event emission.
-const ttlRaw = env.CLAIM_TTL_SEC;
+const ttlRaw = env[ENV_CONFIG_KEYS.CLAIM_TTL_SEC];
 const ttlSec = ttlRaw ? Number(ttlRaw) : 0;
 if (Number.isFinite(ttlSec) && ttlSec > 0) {
   const cutoff = now - Math.floor(ttlSec);
@@ -49,7 +53,7 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
     const sel = await env.DB.prepare(
       `SELECT bus_id, claimed_by, claimed_at, to_owner_id, flow_owner_id, lane_id, request_id, op_id
        FROM bus_messages
-       WHERE q_state = 'PENDING' AND done_at IS NULL
+       WHERE q_state = '${BUS_QUEUE_STATES.PENDING}' AND done_at IS NULL
          AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL
          AND claimed_at <= ?
        ORDER BY claimed_at ASC, bus_id ASC
@@ -68,7 +72,7 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
           `UPDATE bus_messages
            SET claimed_by = NULL, claimed_at = NULL
            WHERE bus_id = ?
-             AND q_state = 'PENDING' AND done_at IS NULL
+             AND q_state = '${BUS_QUEUE_STATES.PENDING}' AND done_at IS NULL
              AND claimed_by IS NOT NULL AND claimed_at IS NOT NULL`
         ).bind(busId).run();
 
@@ -92,7 +96,7 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
 
         // Append event for auditors (append-only)
         await appendBusEvent(env, {
-          event_code: "CLAIM_RECLAIMED",
+          event_code: BUS_EVENT_CODES.CLAIM_RECLAIMED,
           bus_id: busId,
           flow_owner_id: r.flow_owner_id != null ? String(r.flow_owner_id) : null,
           lane_id: r.lane_id != null ? String(r.lane_id) : null,
@@ -100,7 +104,7 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
           op_id: r.op_id != null ? String(r.op_id) : null,
           actor_owner_id: ownerId,
           data: {
-            reason: "CLAIM_TTL_EXPIRED",
+            reason: CLAIM_RECLAIM_REASONS[0],
             claim: {
               claimed_by: oldClaimedBy,
               claimed_at: oldClaimedAt,
@@ -114,10 +118,10 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
         });
       }
 
-      await dbg(env, debugEnabled, "ttl_reclaim", { cutoff, ttl_sec: ttlSec, limit: reclaimLimit, reclaimed });
+      await dbg(env, debugEnabled, DEBUG_EVENT_KIND.TTL_RECLAIM, { cutoff, ttl_sec: ttlSec, limit: reclaimLimit, reclaimed });
     }
   } catch (e: any) {
-    await dbg(env, debugEnabled, "ttl_reclaim_error", { message: String(e?.message ?? e) });
+    await dbg(env, debugEnabled, DEBUG_EVENT_KIND.TTL_RECLAIM_ERROR, { message: String(e?.message ?? e) });
   }
 }
 
@@ -129,7 +133,7 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
        SET claimed_by = ?, claimed_at = ?
        WHERE bus_id = (
          SELECT bus_id FROM bus_messages
-         WHERE q_state = 'PENDING' AND to_owner_id = ? AND claimed_by IS NULL
+         WHERE q_state = '${BUS_QUEUE_STATES.PENDING}' AND to_owner_id = ? AND claimed_by IS NULL
          ORDER BY bus_ts ASC, inserted_at ASC
          LIMIT 1
        )
@@ -139,12 +143,12 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
     ).bind(claimedBy, now, ownerId).first();
 
     if (!row) {
-      await dbg(env, debugEnabled, "dequeue_not_found", { owner_id: ownerId });
+      await dbg(env, debugEnabled, DEBUG_EVENT_KIND.DEQUEUE_NOT_FOUND, { owner_id: ownerId });
       return jsonResponse({ ok: true, found: false });
     }
 
     const busId = String((row as any).bus_id);
-    await dbg(env, debugEnabled, "dequeue_claimed", { owner_id: ownerId, bus_id: busId, claimed_by: claimedBy });
+    await dbg(env, debugEnabled, DEBUG_EVENT_KIND.DEQUEUE_CLAIMED, { owner_id: ownerId, bus_id: busId, claimed_by: claimedBy });
     await patchBusJsonClaim(env, busId, claimedBy, now);
 
     let busObj: any = null;
@@ -179,13 +183,13 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const picked = await env.DB.prepare(
         `SELECT bus_id FROM bus_messages
-         WHERE q_state = 'PENDING' AND to_owner_id = ? AND claimed_by IS NULL
+         WHERE q_state = '${BUS_QUEUE_STATES.PENDING}' AND to_owner_id = ? AND claimed_by IS NULL
          ORDER BY bus_ts ASC, inserted_at ASC
          LIMIT 1`
       ).bind(ownerId).first();
 
       if (!picked) {
-        await dbg(env, debugEnabled, "dequeue_not_found", { owner_id: ownerId, attempt });
+        await dbg(env, debugEnabled, DEBUG_EVENT_KIND.DEQUEUE_NOT_FOUND, { owner_id: ownerId, attempt });
         return jsonResponse({ ok: true, found: false });
       }
 
@@ -199,7 +203,7 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
 
       if ((upd.meta?.changes ?? 0) === 0) continue; // lost race; retry
 
-      await dbg(env, debugEnabled, "dequeue_claimed", { owner_id: ownerId, bus_id: busId, claimed_by: claimedBy, attempt });
+      await dbg(env, debugEnabled, DEBUG_EVENT_KIND.DEQUEUE_CLAIMED, { owner_id: ownerId, bus_id: busId, claimed_by: claimedBy, attempt });
       await patchBusJsonClaim(env, busId, claimedBy, now);
 
       const row = await env.DB.prepare(
@@ -209,7 +213,7 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
          WHERE bus_id = ?`
       ).bind(busId).first();
 
-      if (!row) throw new HttpError(500, "inconsistent_state", "Claimed row not found after update");
+      if (!row) throw new HttpError(500, API_ERROR_CODES.INCONSISTENT_STATE, "Claimed row not found after update");
 
       let busObj: any = null;
       try {

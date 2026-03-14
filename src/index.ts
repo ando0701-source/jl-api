@@ -5,7 +5,7 @@
 // Optional stealth mode: set env.STEALTH_404="1" to return 404 for auth failures.
 
 import { Env } from "./lib/types";
-import { HttpError, jsonResponse } from "./lib/http";
+import { HttpError, jsonResponse, API_ERROR_CODES } from "./lib/http";
 import { route } from "./router";
 
 export default {
@@ -22,7 +22,7 @@ export default {
       }
       console.error("UNHANDLED_ERROR", e);
       return jsonResponse(
-        { ok: false, error: { code: "internal_error", message: "Internal Server Error" } },
+        { ok: false, error: { code: API_ERROR_CODES.INTERNAL_ERROR, message: "Internal Server Error" } },
         500
       );
     }

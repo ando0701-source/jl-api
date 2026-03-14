@@ -1,11 +1,12 @@
 import { Env } from "../lib/types";
-import { HttpError, jsonResponse, readJson } from "../lib/http";
-import { appendOwnerInboxEventBestEffort } from "../lib/inbox";
+import { HttpError, jsonResponse, readJson, API_ERROR_CODES } from "../lib/http";
+import { INBOX_ACK_SCHEMA_ID, INBOX_ACK_STATES, InboxAckState, appendOwnerInboxEventBestEffort } from "../lib/inbox";
+import { BUS_QUEUE_STATES, coerceChannelKind } from "../lib/transport_literals";
 
 type AckInput = {
   to_owner_id: string;
   bus_id: string;
-  ack_state: string;
+  ack_state: InboxAckState;
   inbox_id: string | null;
   note: string | null;
 };
@@ -16,18 +17,25 @@ function normalizeText(v: unknown): string | null {
   return s ? s : null;
 }
 
+function isInboxAckState(v: string): v is InboxAckState {
+  return (INBOX_ACK_STATES as readonly string[]).includes(v);
+}
+
 function parseInput(body: any): AckInput {
   if (body == null || typeof body !== "object") {
-    throw new HttpError(400, "invalid_body", "Body must be a JSON object");
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "Body must be a JSON object");
   }
 
   const toOwnerId = normalizeText((body as any).to_owner_id);
   const busId = normalizeText((body as any).bus_id);
   const ackState = normalizeText((body as any).ack_state);
 
-  if (!toOwnerId) throw new HttpError(400, "missing_to_owner_id", "to_owner_id is required");
-  if (!busId) throw new HttpError(400, "missing_bus_id", "bus_id is required");
-  if (!ackState) throw new HttpError(400, "missing_ack_state", "ack_state is required");
+  if (!toOwnerId) throw new HttpError(400, API_ERROR_CODES.MISSING_TO_OWNER_ID, "to_owner_id is required");
+  if (!busId) throw new HttpError(400, API_ERROR_CODES.MISSING_BUS_ID, "bus_id is required");
+  if (!ackState) throw new HttpError(400, API_ERROR_CODES.MISSING_ACK_STATE, "ack_state is required");
+  if (!isInboxAckState(ackState)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_ACK_STATE, `ack_state must be one of ${INBOX_ACK_STATES.join(", ")}`, { ack_state: ackState });
+  }
 
   return {
     to_owner_id: toOwnerId,
@@ -52,7 +60,7 @@ async function pickInboxRow(env: Env, input: AckInput): Promise<any | null> {
     `SELECT inbox_id,inbox_ts,to_owner_id,from_owner_id,channel,q_state,bus_id,content_json,content_hash
      FROM owner_inbox
      WHERE to_owner_id = ? AND bus_id = ?
-     ORDER BY CASE q_state WHEN 'PENDING' THEN 0 WHEN 'DONE' THEN 1 ELSE 2 END, inbox_ts ASC, inbox_id ASC
+     ORDER BY CASE q_state WHEN '${BUS_QUEUE_STATES.PENDING}' THEN 0 WHEN '${BUS_QUEUE_STATES.DONE}' THEN 1 ELSE 2 END, inbox_ts ASC, inbox_id ASC
      LIMIT 1`
   ).bind(input.to_owner_id, input.bus_id).first<any>();
 }
@@ -76,11 +84,13 @@ export async function handleInboxAck(req: Request, env: Env): Promise<Response> 
   }
 
   const inboxId = String((picked as any).inbox_id);
-  if (String((picked as any).q_state) !== "DONE") {
+  // Inbox ACK is owner-local acknowledgement only.
+  // It updates owner_inbox state and emits owner_inbox_events, but does not finalize bus_messages.
+  if (String((picked as any).q_state) !== BUS_QUEUE_STATES.DONE) {
     await env.DB.prepare(
       `UPDATE owner_inbox
-       SET q_state = 'DONE'
-       WHERE inbox_id = ? AND to_owner_id = ? AND q_state <> 'DONE'`
+       SET q_state = '${BUS_QUEUE_STATES.DONE}'
+       WHERE inbox_id = ? AND to_owner_id = ? AND q_state <> '${BUS_QUEUE_STATES.DONE}'`
     ).bind(inboxId, input.to_owner_id).run();
   }
 
@@ -95,7 +105,7 @@ export async function handleInboxAck(req: Request, env: Env): Promise<Response> 
   }
 
   const payload: Record<string, unknown> = {
-    schema_id: "INBOX_ACK_V1",
+    schema_id: INBOX_ACK_SCHEMA_ID,
     to_owner_id: input.to_owner_id,
     bus_id: String((row as any).bus_id),
     ack_state: input.ack_state,
@@ -110,7 +120,7 @@ export async function handleInboxAck(req: Request, env: Env): Promise<Response> 
     from_owner_id: (row as any).from_owner_id != null ? String((row as any).from_owner_id) : null,
     inbox_id: String((row as any).inbox_id),
     bus_id: String((row as any).bus_id),
-    channel: ((row as any).channel === "WEBHOOK") ? "WEBHOOK" : "D1",
+    channel: coerceChannelKind((row as any).channel),
     data: payload,
   });
 

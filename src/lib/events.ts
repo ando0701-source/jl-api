@@ -13,6 +13,22 @@ function uuid(): string {
   }
 }
 
+export const BUS_EVENT_CODES = {
+  CLAIM_RECLAIMED: "CLAIM_RECLAIMED",
+  AUTO_FINALIZE_ACK: "AUTO_FINALIZE_ACK",
+  ENQUEUE_DUPLICATE: "ENQUEUE_DUPLICATE",
+  ENQUEUE_CONSTRAINT_FAILED: "ENQUEUE_CONSTRAINT_FAILED",
+} as const;
+
+export const CLAIM_RECLAIM_REASONS = ["CLAIM_TTL_EXPIRED"] as const;
+export type ClaimReclaimReason = typeof CLAIM_RECLAIM_REASONS[number];
+
+export const ENQUEUE_DUPLICATE_REASONS = ["BUS_ID_ALREADY_EXISTS"] as const;
+export type EnqueueDuplicateReason = typeof ENQUEUE_DUPLICATE_REASONS[number];
+
+export const ENQUEUE_CONSTRAINT_KINDS = ["DB_CONSTRAINT"] as const;
+export type EnqueueConstraintKind = typeof ENQUEUE_CONSTRAINT_KINDS[number];
+
 export type BusEventInput = {
   event_code: string;
   bus_id?: string | null;

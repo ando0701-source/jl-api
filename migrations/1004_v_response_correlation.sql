@@ -1,6 +1,8 @@
--- DDL_D1_50_lane_mismatch_view.sql
+-- 1004_v_response_correlation.sql
 -- Optional diagnostic view: detect RESPONSE correlation mismatches by joining
 -- RESPONSE.contents.meta.echo_request_bus_id -> REQUEST.bus_id.
+-- One object per migration file: v_response_correlation.
+-- Target: Cloudflare D1 (SQLite)
 
 CREATE VIEW IF NOT EXISTS v_response_correlation AS
 SELECT
@@ -31,8 +33,3 @@ FROM bus_messages r
 LEFT JOIN bus_messages q
   ON q.bus_id = CAST(json_extract(r.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)
 WHERE r.msg_type='RESPONSE';
-
--- Optional: create an index to speed up the join (SQLite expression index).
--- Note: if your D1 env rejects expression indexes, you can omit this.
-CREATE INDEX IF NOT EXISTS idx_bus_messages_echo_request_bus_id
-  ON bus_messages (CAST(json_extract(bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT));

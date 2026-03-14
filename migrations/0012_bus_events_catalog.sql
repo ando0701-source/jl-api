@@ -1,6 +1,7 @@
--- DDL_D1_73_bus_events_catalog.sql
+-- 0012_bus_events_catalog.sql
 -- Materialized catalog of event_code requirements and metadata.
 -- Canonical definitions live in vocab.tsv under bus_events.event_code.<EVENT_CODE>.
+-- One object per migration file: bus_events_catalog + dedicated indexes.
 -- Target: Cloudflare D1 (SQLite)
 
 CREATE TABLE IF NOT EXISTS bus_events_catalog (

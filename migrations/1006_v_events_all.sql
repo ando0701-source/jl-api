@@ -1,5 +1,6 @@
--- DDL_D1_72_events_all_view.sql
+-- 1006_v_events_all.sql
 -- Unified events view: appended bus_events + derived mismatch events.
+-- One object per migration file: v_events_all.
 -- Target: Cloudflare D1 (SQLite)
 
 CREATE VIEW IF NOT EXISTS v_events_all AS

@@ -1,5 +1,5 @@
--- DDL_D1_74_seed_bus_events_catalog.sql
--- Seed bus_events_catalog with event_code definitions materialized from vocab preview.
+-- 2012_seed_bus_events_catalog_core.sql
+-- Seed bus_events_catalog with core event_code definitions materialized from vocab preview.
 -- Source of truth (canonical): CODEX/vocab/bus_events_catalog_seed_preview.tsv
 -- Target: Cloudflare D1 (SQLite)
 

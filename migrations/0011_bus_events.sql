@@ -1,5 +1,6 @@
--- DDL_D1_70_bus_events.sql
+-- 0011_bus_events.sql
 -- Append-only audit events that cannot be reconstructed once overwritten (e.g., TTL reclaim).
+-- One object per migration file: bus_events + dedicated indexes.
 -- Target: Cloudflare D1 (SQLite)
 
 CREATE TABLE IF NOT EXISTS bus_events (

@@ -1,4 +1,6 @@
-import { HttpError } from "./http";
+import { HttpError, API_ERROR_CODES } from "./http";
+import { BUS_SCHEMA_ID, MESSAGE_SCHEMA_ID } from "./schema";
+import { MESSAGE_TYPES, BusMessageType, isBusMessageType } from "./transport_literals";
 
 export function getPath(obj: any, path: string): any {
   const parts = path.split(".");
@@ -17,7 +19,7 @@ export function requireFields(obj: any, paths: string[]): void {
     if (v === undefined || v === null || v === "") missing.push(p);
   }
   if (missing.length) {
-    throw new HttpError(400, "missing_fields", "Missing required fields", { missing });
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "Missing required fields", { missing });
   }
 }
 
@@ -33,18 +35,18 @@ export function normalizeBusTs(busTs: unknown): number {
   }
   if (typeof busTs === "string") {
     const t = busTs.trim();
-    if (!t) throw new HttpError(400, "invalid_bus_ts", "bus_ts is empty");
+    if (!t) throw new HttpError(400, API_ERROR_CODES.INVALID_BUS_TS, "bus_ts is empty");
     if (/^\d+$/.test(t)) {
       const n = Number(t);
-      if (!Number.isFinite(n)) throw new HttpError(400, "invalid_bus_ts", "bus_ts is not a valid number");
+      if (!Number.isFinite(n)) throw new HttpError(400, API_ERROR_CODES.INVALID_BUS_TS, "bus_ts is not a valid number");
       if (n >= 1e12) return Math.floor(n / 1000);
       return Math.floor(n);
     }
     const ms = Date.parse(t);
-    if (!Number.isFinite(ms)) throw new HttpError(400, "invalid_bus_ts", "bus_ts is not a valid ISO-8601 datetime");
+    if (!Number.isFinite(ms)) throw new HttpError(400, API_ERROR_CODES.INVALID_BUS_TS, "bus_ts is not a valid ISO-8601 datetime");
     return Math.floor(ms / 1000);
   }
-  throw new HttpError(400, "invalid_bus_ts", "bus_ts must be number or string");
+  throw new HttpError(400, API_ERROR_CODES.INVALID_BUS_TS, "bus_ts must be number or string");
 }
 
 export function validateBusLoose(bus: any): {
@@ -54,7 +56,7 @@ export function validateBusLoose(bus: any): {
   from_owner_id: string;
   to_owner_id: string;
   message_schema_id: string;
-  msg_type: "REQUEST" | "RESPONSE";
+  msg_type: BusMessageType;
   op_id: string;
   flow_owner_id: string;
   lane_id: string;
@@ -66,7 +68,7 @@ export function validateBusLoose(bus: any): {
   bus_json: string;
 } {
   if (bus == null || typeof bus !== "object") {
-    throw new HttpError(400, "invalid_body", "Body must be a JSON object");
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "Body must be a JSON object");
   }
 
   // Required for DB extraction
@@ -86,7 +88,7 @@ export function validateBusLoose(bus: any): {
   ]);
 
   const schema_id = String(bus.schema_id);
-  if (schema_id !== "2PLT_BUS/v1") throw new HttpError(400, "invalid_schema_id", "schema_id must be 2PLT_BUS/v1");
+  if (schema_id !== BUS_SCHEMA_ID) throw new HttpError(400, API_ERROR_CODES.INVALID_SCHEMA_ID, `schema_id must be ${BUS_SCHEMA_ID}`);
 
   const bus_id = String(bus.bus_id);
   const bus_ts = normalizeBusTs(bus.bus_ts);
@@ -96,15 +98,15 @@ export function validateBusLoose(bus: any): {
   const to_owner_id = String(bus.routing.to_owner_id);
 
   const message_schema_id = String(bus.message.schema_id);
-  if (message_schema_id !== "2PLT_MESSAGE/v1") {
-    throw new HttpError(400, "invalid_message_schema_id", "message.schema_id must be 2PLT_MESSAGE/v1");
+  if (message_schema_id !== MESSAGE_SCHEMA_ID) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_MESSAGE_SCHEMA_ID, `message.schema_id must be ${MESSAGE_SCHEMA_ID}`);
   }
 
   const msg_type_raw = String(bus.message.msg_type);
-  if (msg_type_raw !== "REQUEST" && msg_type_raw !== "RESPONSE") {
-    throw new HttpError(400, "invalid_msg_type", "message.msg_type must be REQUEST or RESPONSE");
+  if (!isBusMessageType(msg_type_raw)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_MSG_TYPE, `message.msg_type must be ${MESSAGE_TYPES.REQUEST} or ${MESSAGE_TYPES.RESPONSE}`);
   }
-  const msg_type = msg_type_raw as "REQUEST" | "RESPONSE";
+  const msg_type = msg_type_raw as BusMessageType;
 
   const op_id = String(bus.message.op_id);
   const flow_owner_id = String(bus.message.flow.owner_id);
@@ -118,14 +120,14 @@ export function validateBusLoose(bus: any): {
     delete (bus.message as any).payload;
   }
   if ((bus.message as any).contents == null || typeof (bus.message as any).contents !== "object") {
-    throw new HttpError(400, "missing_contents", "message.contents is required (object)");
+    throw new HttpError(400, API_ERROR_CODES.MISSING_CONTENTS, "message.contents is required (object)");
   }
 
   // Normalize response-only fields for DB constraints
   let state: string | null = null;
   let out_state: string | null = null;
 
-  if (msg_type === "REQUEST") {
+  if (msg_type === MESSAGE_TYPES.REQUEST) {
     // Enforce DB CHECK: state/out_state must be NULL for REQUEST
     if (bus.message.state != null) delete bus.message.state;
     if (bus.message.out_state != null) delete bus.message.out_state;
@@ -134,7 +136,7 @@ export function validateBusLoose(bus: any): {
 
     // Optional minimal consistency: request's to_owner should match flow.owner
     if (to_owner_id !== flow_owner_id) {
-      throw new HttpError(400, "routing_flow_mismatch", "routing.to_owner_id must match message.flow.owner_id for REQUEST", {
+      throw new HttpError(400, API_ERROR_CODES.ROUTING_FLOW_MISMATCH, "routing.to_owner_id must match message.flow.owner_id for REQUEST", {
         to_owner_id,
         flow_owner_id,
       });
@@ -148,7 +150,7 @@ export function validateBusLoose(bus: any): {
     }
     out_state = String(bus.message.out_state);
     if (out_state !== state) {
-      throw new HttpError(400, "out_state_mismatch", "message.out_state must equal message.state for RESPONSE", {
+      throw new HttpError(400, API_ERROR_CODES.OUT_STATE_MISMATCH, "message.out_state must equal message.state for RESPONSE", {
         state,
         out_state,
       });
