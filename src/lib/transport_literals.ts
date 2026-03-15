@@ -193,7 +193,7 @@ export function isAllowedRequestInState(opId: OpId, inState: FlowState): boolean
 
 export function isAllowedResponseTerminal(opId: OpId, inState: FlowState, terminal: TerminalState): boolean {
   if (opId === OP_IDS.JL_PROPOSAL && inState === FLOW_STATES.NUL) {
-    return terminal === TERMINAL_STATES.PROPOSAL || terminal === TERMINAL_STATES.ABEND;
+    return terminal === TERMINAL_STATES.PROPOSAL || terminal === TERMINAL_STATES.UNRESOLVED || terminal === TERMINAL_STATES.ABEND;
   }
   if (opId === OP_IDS.JL_COMMIT && inState === FLOW_STATES.PROPOSAL) {
     return terminal === TERMINAL_STATES.COMMIT || terminal === TERMINAL_STATES.UNRESOLVED || terminal === TERMINAL_STATES.ABEND;

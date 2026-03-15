@@ -8,6 +8,7 @@ export const API_ERROR_CODES = {
   INTERNAL_ERROR: "internal_error",
   INVALID_ACK_STATE: "invalid_ack_state",
   INVALID_BODY: "invalid_body",
+  INVALID_ARTIFACT_COMPLETION: "invalid_artifact_completion",
   INVALID_BUS_TS: "invalid_bus_ts",
   INVALID_JSON: "invalid_json",
   INVALID_LIMIT: "invalid_limit",

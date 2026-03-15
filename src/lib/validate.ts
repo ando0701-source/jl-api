@@ -197,6 +197,16 @@ function validateRequiredToResolve(contents: Record<string, unknown>): void {
   }
 }
 
+function validateNonCommitArtifactCompletionGate(state: TerminalState, contents: Record<string, unknown>): void {
+  if (state === "COMMIT") return;
+  if (contents.result != null) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_ARTIFACT_COMPLETION, "Only COMMIT may carry message.contents.result or claim deterministic artifact completion", {
+      state,
+      field: "message.contents.result",
+    });
+  }
+}
+
 function validateRequestProfile(msgType: BusMessageType, opId: OpId, inState: FlowState, contents: Record<string, unknown>, toOwnerId: string, flowOwnerId: string): void {
   if (msgType !== MESSAGE_TYPES.REQUEST) return;
 
@@ -229,7 +239,7 @@ function validateRequestProfile(msgType: BusMessageType, opId: OpId, inState: Fl
 function validateResponseProfile(opId: OpId, inState: FlowState, state: TerminalState, contents: Record<string, unknown>): void {
   if (!isAllowedResponseTerminal(opId, inState, state)) {
     const allowed = opId === "JL_PROPOSAL"
-      ? ["PROPOSAL", "ABEND"]
+      ? ["PROPOSAL", "UNRESOLVED", "ABEND"]
       : opId === "JL_COMMIT"
         ? ["COMMIT", "UNRESOLVED", "ABEND"]
         : ["UNRESOLVED", "ABEND"];
@@ -240,6 +250,8 @@ function validateResponseProfile(opId: OpId, inState: FlowState, state: Terminal
       allowed,
     });
   }
+
+  validateNonCommitArtifactCompletionGate(state, contents);
 
   switch (state) {
     case "PROPOSAL":
