@@ -14,6 +14,114 @@ export const MESSAGE_TYPES = {
 
 export type BusMessageType = typeof MESSAGE_TYPES[keyof typeof MESSAGE_TYPES];
 
+export const IO_MODES = {
+  GIT: "GIT",
+  ZIP: "ZIP",
+  INLINE_ONLY: "INLINE_ONLY",
+  NONE: "NONE",
+} as const;
+
+export type IoMode = typeof IO_MODES[keyof typeof IO_MODES];
+
+export const OP_KINDS = {
+  FS_MKDIR: "fs.mkdir",
+  FS_WRITE: "fs.write",
+  FS_DELETE: "fs.delete",
+  FS_PATCH_UNIFIED: "fs.patch_unified",
+} as const;
+
+export type OpKind = typeof OP_KINDS[keyof typeof OP_KINDS];
+
+export const OP_IDS = {
+  JL_PROPOSAL: "JL_PROPOSAL",
+  JL_COMMIT: "JL_COMMIT",
+  JL_REJECT: "JL_REJECT",
+} as const;
+
+export type OpId = typeof OP_IDS[keyof typeof OP_IDS];
+
+export const FLOW_STATES = {
+  NUL: "NUL",
+  PROPOSAL: "PROPOSAL",
+  COMMIT: "COMMIT",
+  UNRESOLVED: "UNRESOLVED",
+  ABEND: "ABEND",
+} as const;
+
+export type FlowState = typeof FLOW_STATES[keyof typeof FLOW_STATES];
+
+export const TERMINAL_STATES = {
+  PROPOSAL: "PROPOSAL",
+  COMMIT: "COMMIT",
+  UNRESOLVED: "UNRESOLVED",
+  ABEND: "ABEND",
+} as const;
+
+export type TerminalState = typeof TERMINAL_STATES[keyof typeof TERMINAL_STATES];
+
+export const PROFILE_DOC_IDS = {
+  JL_PROPOSAL: "2PLT_50_PROFILE_JUDGEMENT_LOG_PROPOSAL",
+  JL_COMMIT: "2PLT_50_PROFILE_JUDGEMENT_LOG_COMMIT",
+  JL_REJECT: "2PLT_50_PROFILE_JUDGEMENT_LOG_REJECT",
+} as const;
+
+export type ProfileDocId = typeof PROFILE_DOC_IDS[keyof typeof PROFILE_DOC_IDS];
+
+export const REASON_CODES = {
+  ARTIFACT_GENERATION_FAILED: "ARTIFACT_GENERATION_FAILED",
+  EXECUTION_IMPOSSIBLE: "EXECUTION_IMPOSSIBLE",
+  INPUT_INSUFFICIENT_BUT_PERSISTENCE_REQUIRED: "INPUT_INSUFFICIENT_BUT_PERSISTENCE_REQUIRED",
+  INPUT_MISSING: "INPUT_MISSING",
+  INTERNAL_ERROR: "INTERNAL_ERROR",
+  LANE_ID_INVALID: "LANE_ID_INVALID",
+  LANE_ID_MISSING: "LANE_ID_MISSING",
+  LANE_ID_RESERVED: "LANE_ID_RESERVED",
+  LOG_PERSISTENCE_FAILED: "LOG_PERSISTENCE_FAILED",
+  MANAGER_REJECTED_PROPOSAL: "MANAGER_REJECTED_PROPOSAL",
+  OWNER_ID_INVALID: "OWNER_ID_INVALID",
+  OWNER_ID_MISSING: "OWNER_ID_MISSING",
+  OWNER_ID_RESERVED: "OWNER_ID_RESERVED",
+  POLICY_CONFLICT: "POLICY_CONFLICT",
+  POLICY_VIOLATION: "POLICY_VIOLATION",
+  PROPOSAL_ARTIFACT_VIOLATION: "PROPOSAL_ARTIFACT_VIOLATION",
+  PROTOCOL_VIOLATION: "PROTOCOL_VIOLATION",
+  REJECT_TARGET_NOT_FOUND: "REJECT_TARGET_NOT_FOUND",
+  REQUEST_ID_INVALID: "REQUEST_ID_INVALID",
+  REQUEST_ID_MISSING: "REQUEST_ID_MISSING",
+  REQUEST_ID_RESERVED: "REQUEST_ID_RESERVED",
+  SCHEMA_MISSING_REQUIRED: "SCHEMA_MISSING_REQUIRED",
+  TRIGGER_INVALID: "TRIGGER_INVALID",
+  WRITE_SCOPE_VIOLATION: "WRITE_SCOPE_VIOLATION",
+} as const;
+
+export type ReasonCode = typeof REASON_CODES[keyof typeof REASON_CODES];
+
+export const IDENTIFIER_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
+
+export const OWNER_ID_RESERVED_LITERALS = new Set([
+  "SYSTEM",
+  "DEFAULT",
+  "ROOT",
+  "GLOBAL",
+  "UNKNOWN",
+  "AUTO",
+  "NONE",
+  "NULL",
+  "requester",
+  "WORKER",
+].map((v) => v.toUpperCase()));
+
+export const LANE_ID_RESERVED_LITERALS = new Set([
+  "SYSTEM",
+  "DEFAULT",
+  "ROOT",
+  "GLOBAL",
+  "UNKNOWN",
+  "AUTO",
+  "NONE",
+  "NULL",
+].map((v) => v.toUpperCase()));
+
 export const CHANNEL_KINDS = {
   D1: "D1",
   WEBHOOK: "WEBHOOK",
@@ -37,4 +145,61 @@ export function isBusMessageType(v: string): v is BusMessageType {
 
 export function coerceChannelKind(v: unknown): ChannelKind {
   return v === CHANNEL_KINDS.WEBHOOK ? CHANNEL_KINDS.WEBHOOK : CHANNEL_KINDS.D1;
+}
+
+export function isIoMode(v: string): v is IoMode {
+  return v === IO_MODES.GIT || v === IO_MODES.ZIP || v === IO_MODES.INLINE_ONLY || v === IO_MODES.NONE;
+}
+
+export function isOpKind(v: string): v is OpKind {
+  return v === OP_KINDS.FS_MKDIR || v === OP_KINDS.FS_WRITE || v === OP_KINDS.FS_DELETE || v === OP_KINDS.FS_PATCH_UNIFIED;
+}
+
+export function isOpId(v: string): v is OpId {
+  return v === OP_IDS.JL_PROPOSAL || v === OP_IDS.JL_COMMIT || v === OP_IDS.JL_REJECT;
+}
+
+export function isFlowState(v: string): v is FlowState {
+  return v === FLOW_STATES.NUL || v === FLOW_STATES.PROPOSAL || v === FLOW_STATES.COMMIT || v === FLOW_STATES.UNRESOLVED || v === FLOW_STATES.ABEND;
+}
+
+export function isTerminalState(v: string): v is TerminalState {
+  return v === TERMINAL_STATES.PROPOSAL || v === TERMINAL_STATES.COMMIT || v === TERMINAL_STATES.UNRESOLVED || v === TERMINAL_STATES.ABEND;
+}
+
+export function isProfileDocId(v: string): v is ProfileDocId {
+  return v === PROFILE_DOC_IDS.JL_PROPOSAL || v === PROFILE_DOC_IDS.JL_COMMIT || v === PROFILE_DOC_IDS.JL_REJECT;
+}
+
+export function isReasonCode(v: string): v is ReasonCode {
+  return Object.values(REASON_CODES).includes(v as ReasonCode);
+}
+
+export function defaultProfileDocIdForOpId(opId: OpId): ProfileDocId {
+  switch (opId) {
+    case OP_IDS.JL_PROPOSAL:
+      return PROFILE_DOC_IDS.JL_PROPOSAL;
+    case OP_IDS.JL_COMMIT:
+      return PROFILE_DOC_IDS.JL_COMMIT;
+    case OP_IDS.JL_REJECT:
+      return PROFILE_DOC_IDS.JL_REJECT;
+  }
+}
+
+export function isAllowedRequestInState(opId: OpId, inState: FlowState): boolean {
+  return (opId === OP_IDS.JL_PROPOSAL && inState === FLOW_STATES.NUL)
+    || ((opId === OP_IDS.JL_COMMIT || opId === OP_IDS.JL_REJECT) && inState === FLOW_STATES.PROPOSAL);
+}
+
+export function isAllowedResponseTerminal(opId: OpId, inState: FlowState, terminal: TerminalState): boolean {
+  if (opId === OP_IDS.JL_PROPOSAL && inState === FLOW_STATES.NUL) {
+    return terminal === TERMINAL_STATES.PROPOSAL || terminal === TERMINAL_STATES.ABEND;
+  }
+  if (opId === OP_IDS.JL_COMMIT && inState === FLOW_STATES.PROPOSAL) {
+    return terminal === TERMINAL_STATES.COMMIT || terminal === TERMINAL_STATES.UNRESOLVED || terminal === TERMINAL_STATES.ABEND;
+  }
+  if (opId === OP_IDS.JL_REJECT && inState === FLOW_STATES.PROPOSAL) {
+    return terminal === TERMINAL_STATES.UNRESOLVED || terminal === TERMINAL_STATES.ABEND;
+  }
+  return false;
 }
