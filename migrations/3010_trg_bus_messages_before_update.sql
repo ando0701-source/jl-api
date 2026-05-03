@@ -1,6 +1,6 @@
--- 3013_trg_bus_messages_before_update_phase0_protocol_freeze_sync.sql
--- Re-sync UPDATE trigger with protocol-freeze gates after JL_PROPOSAL -> UNRESOLVED became active.
--- Supersedes the validation surface of 3010 while keeping one-trigger-per-file governance.
+-- 3010_trg_bus_messages_before_update.sql
+-- Canonical UPDATE trigger for bus_messages Phase-0 protocol guard.
+-- Uses the 3010 bus_messages trigger-family prefix while keeping one-trigger-per-file governance.
 
 DROP TRIGGER IF EXISTS trg_bus_messages_phase0_update;
 

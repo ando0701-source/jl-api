@@ -1,4 +1,4 @@
--- 2013_seed_bus_events_catalog_dispatch.sql
+-- 2012_seed_bus_events_catalog_dispatch.sql
 -- Extends bus_events_catalog with dispatch lifecycle event codes.
 -- Safe for manual application after bus_events_catalog exists.
 
