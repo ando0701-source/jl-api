@@ -25,6 +25,7 @@ export const API_ERROR_CODES = {
   INVALID_IN_STATE: "invalid_in_state",
   INVALID_TERMINAL_STATE: "invalid_terminal_state",
   INVALID_PROFILE_DOC_ID: "invalid_profile_doc_id",
+  INVALID_PROPOSAL_REF: "invalid_proposal_ref",
   INVALID_REASON_CODE: "invalid_reason_code",
   OWNER_ID_RESERVED: "owner_id_reserved",
   LANE_ID_RESERVED: "lane_id_reserved",

@@ -19,6 +19,17 @@ BEGIN
       OR (NEW.op_id = 'JL_REJECT' AND NEW.in_state = 'PROPOSAL')
     );
 
+
+  SELECT RAISE(ABORT, 'invalid_proposal_ref')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND (
+      COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT)), '') = ''
+      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.source_op_id') AS TEXT)), '') <> 'JL_PROPOSAL'
+      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.source_terminal') AS TEXT)), '') <> 'PROPOSAL'
+      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.resolution_mode') AS TEXT)), '') <> 'EXPLICIT_BUS_ID'
+    );
+
   SELECT RAISE(ABORT, 'invalid_response_terminal')
   WHERE NEW.msg_type = 'RESPONSE'
     AND NOT (

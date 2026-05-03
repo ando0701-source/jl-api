@@ -198,6 +198,38 @@ function validateRequiredToResolve(contents: Record<string, unknown>): void {
 }
 
 
+
+function validateProposalRefForTargetRequest(opId: OpId, contents: Record<string, unknown>): void {
+  if (opId !== "JL_COMMIT" && opId !== "JL_REJECT") return;
+  const ref = contents.proposal_ref;
+  if (!isPlainObject(ref)) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "JL_COMMIT/JL_REJECT request must include message.contents.proposal_ref", {
+      missing: ["message.contents.proposal_ref"],
+      op_id: opId,
+    });
+  }
+  const busId = ref.bus_id;
+  const sourceOpId = ref.source_op_id;
+  const sourceTerminal = ref.source_terminal;
+  const resolutionMode = ref.resolution_mode;
+  const missing: string[] = [];
+  if (typeof busId !== "string" || busId.trim() === "") missing.push("message.contents.proposal_ref.bus_id");
+  if (typeof sourceOpId !== "string" || sourceOpId.trim() === "") missing.push("message.contents.proposal_ref.source_op_id");
+  if (typeof sourceTerminal !== "string" || sourceTerminal.trim() === "") missing.push("message.contents.proposal_ref.source_terminal");
+  if (typeof resolutionMode !== "string" || resolutionMode.trim() === "") missing.push("message.contents.proposal_ref.resolution_mode");
+  if (missing.length) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "message.contents.proposal_ref is missing required explicit target fields", { missing, op_id: opId });
+  }
+  if (sourceOpId !== "JL_PROPOSAL" || sourceTerminal !== "PROPOSAL" || resolutionMode !== "EXPLICIT_BUS_ID") {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.proposal_ref must target an explicit JL_PROPOSAL/PROPOSAL response bus_id", {
+      op_id: opId,
+      expected: { source_op_id: "JL_PROPOSAL", source_terminal: "PROPOSAL", resolution_mode: "EXPLICIT_BUS_ID" },
+      actual: { source_op_id: sourceOpId, source_terminal: sourceTerminal, resolution_mode: resolutionMode },
+    });
+  }
+  ref.bus_id = String(busId).trim();
+}
+
 function validateResponseCorrelation(contents: Record<string, unknown>): void {
   const meta = contents.meta;
   if (!isPlainObject(meta)) {
@@ -251,6 +283,8 @@ function validateRequestProfile(msgType: BusMessageType, opId: OpId, inState: Fl
       });
     }
   }
+
+  validateProposalRefForTargetRequest(opId, contents);
 }
 
 function validateResponseProfile(opId: OpId, inState: FlowState, state: TerminalState, contents: Record<string, unknown>): void {
