@@ -27,6 +27,11 @@ BEGIN
       OR (NEW.op_id = 'JL_REJECT' AND NEW.in_state = 'PROPOSAL' AND NEW.state IN ('UNRESOLVED','ABEND') AND NEW.out_state = NEW.state)
     );
 
+
+  SELECT RAISE(ABORT, 'missing_echo_request_bus_id')
+  WHERE NEW.msg_type = 'RESPONSE'
+    AND COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)), '') = '';
+
   SELECT RAISE(ABORT, 'invalid_profile_doc_id')
   WHERE json_extract(NEW.bus_json, '$.message.contents.profile_doc_id') IS NOT NULL
     AND (

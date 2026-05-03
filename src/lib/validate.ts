@@ -197,6 +197,23 @@ function validateRequiredToResolve(contents: Record<string, unknown>): void {
   }
 }
 
+
+function validateResponseCorrelation(contents: Record<string, unknown>): void {
+  const meta = contents.meta;
+  if (!isPlainObject(meta)) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "RESPONSE must include message.contents.meta.echo_request_bus_id", {
+      missing: ["message.contents.meta.echo_request_bus_id"],
+    });
+  }
+  const echo = meta.echo_request_bus_id;
+  if (typeof echo !== "string" || echo.trim() === "") {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "RESPONSE must include non-empty message.contents.meta.echo_request_bus_id", {
+      missing: ["message.contents.meta.echo_request_bus_id"],
+    });
+  }
+  meta.echo_request_bus_id = echo.trim();
+}
+
 function validateNonCommitArtifactCompletionGate(state: TerminalState, contents: Record<string, unknown>): void {
   if (state === "COMMIT") return;
   if (contents.result != null) {
@@ -251,6 +268,7 @@ function validateResponseProfile(opId: OpId, inState: FlowState, state: Terminal
     });
   }
 
+  validateResponseCorrelation(contents);
   validateNonCommitArtifactCompletionGate(state, contents);
 
   switch (state) {
