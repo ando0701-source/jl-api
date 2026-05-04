@@ -4,12 +4,15 @@
 -- One object per migration file: v_response_correlation.
 -- Target: Cloudflare D1 (SQLite)
 
-CREATE VIEW IF NOT EXISTS v_response_correlation AS
+DROP VIEW IF EXISTS v_response_correlation;
+
+CREATE VIEW v_response_correlation AS
 SELECT
   r.bus_id AS response_bus_id,
   r.bus_ts AS response_bus_ts,
   r.from_owner_id AS response_from_owner_id,
   r.to_owner_id AS response_to_owner_id,
+  r.op_id AS response_op_id,
   r.flow_owner_id AS response_flow_owner_id,
   r.lane_id AS response_lane_id,
   r.request_id AS response_request_id,
@@ -17,6 +20,7 @@ SELECT
 
   q.bus_id AS request_bus_id,
   q.bus_ts AS request_bus_ts,
+  q.op_id AS request_op_id,
   q.flow_owner_id AS request_flow_owner_id,
   q.lane_id AS request_lane_id,
   q.request_id AS request_id,

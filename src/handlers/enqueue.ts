@@ -8,6 +8,7 @@ import { appendBusEvent, BUS_EVENT_CODES, ENQUEUE_CONSTRAINT_KINDS, ENQUEUE_DUPL
 import { appendBusAuditBestEffort } from "../lib/bus_audit";
 import { appendOwnerInboxEventBestEffort, putOwnerInboxNotificationBestEffort } from "../lib/inbox";
 import { BUS_QUEUE_STATES, CHANNEL_KINDS } from "../lib/transport_literals";
+import { sha256Hex } from "../lib/util";
 
 export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
   const dbgEnabled = isDebugLiteEnabled(req, env);
@@ -15,7 +16,31 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
   const bus = await readJson(req);
   const x = validateBusLoose(bus);
 
-  await validateProposalRefTargetPreflight(env, x);
+  try {
+    await validateProposalRefTargetPreflight(env, x);
+  } catch (e: any) {
+    if (e instanceof HttpError && e.code === API_ERROR_CODES.INVALID_PROPOSAL_REF) {
+      const payloadHash = await sha256Hex(JSON.stringify(bus));
+      await appendBusEvent(env, {
+        event_code: BUS_EVENT_CODES.ENQUEUE_PRECHECK_REJECTED,
+        bus_id: x.bus_id,
+        flow_owner_id: x.flow_owner_id,
+        lane_id: x.lane_id,
+        request_id: x.request_id,
+        op_id: x.op_id,
+        actor_owner_id: x.from_owner_id,
+        data: {
+          validation_stage: "proposal_ref_target_preflight",
+          error_code: e.code,
+          failure_code: (e.details as any)?.failure_code ?? null,
+          message: e.message,
+          details: e.details ?? null,
+          attempted_payload_hash_sha256: payloadHash,
+        },
+      });
+    }
+    throw e;
+  }
 
   // Canonicalize stored bus record (include transport queue fields)
   const busObj: any = x.bus_obj;
