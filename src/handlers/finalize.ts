@@ -95,9 +95,22 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
     throw new HttpError(400, API_ERROR_CODES.INVALID_Q_STATE, `q_state must be "${BUS_QUEUE_STATES.DONE}" or "${BUS_QUEUE_STATES.DEAD}"`, { q_state: qState });
   }
 
-  // Snapshot before mutation (for audit evidence)
+  // Snapshot before mutation (for audit evidence and event linkage materialization).
+  // Per-message events should carry the same flow/lane/request/op linkage as their target bus row.
   const beforeRow = await env.DB.prepare(
-    `SELECT q_state, done_at, claimed_by, claimed_at FROM bus_messages WHERE bus_id = ?`
+    `SELECT
+       q_state,
+       done_at,
+       claimed_by,
+       claimed_at,
+       flow_owner_id,
+       lane_id,
+       request_id,
+       op_id,
+       from_owner_id,
+       to_owner_id
+     FROM bus_messages
+     WHERE bus_id = ?`
   ).bind(busId).first<any>();
 
   const doneAt = nowEpochSec();
@@ -126,10 +139,23 @@ export async function handleFinalize(req: Request, env: Env): Promise<Response> 
     await appendBusEvent(env, {
       event_code: BUS_EVENT_CODES.AUTO_FINALIZE_ACK,
       bus_id: busId,
+      flow_owner_id: beforeRow && beforeRow.flow_owner_id != null ? String(beforeRow.flow_owner_id) : null,
+      lane_id: beforeRow && beforeRow.lane_id != null ? String(beforeRow.lane_id) : null,
+      request_id: beforeRow && beforeRow.request_id != null ? String(beforeRow.request_id) : null,
+      op_id: beforeRow && beforeRow.op_id != null ? String(beforeRow.op_id) : null,
       actor_owner_id: actorOwnerId,
       data: {
         q_state: qState,
         reason,
+        target: {
+          bus_id: busId,
+          flow_owner_id: beforeRow && beforeRow.flow_owner_id != null ? String(beforeRow.flow_owner_id) : null,
+          lane_id: beforeRow && beforeRow.lane_id != null ? String(beforeRow.lane_id) : null,
+          request_id: beforeRow && beforeRow.request_id != null ? String(beforeRow.request_id) : null,
+          op_id: beforeRow && beforeRow.op_id != null ? String(beforeRow.op_id) : null,
+          from_owner_id: beforeRow && beforeRow.from_owner_id != null ? String(beforeRow.from_owner_id) : null,
+          to_owner_id: beforeRow && beforeRow.to_owner_id != null ? String(beforeRow.to_owner_id) : null,
+        },
         transition: {
           q_state: { from: beforeQ, to: qState },
           done_at: { from: beforeDoneAt, to: doneAt },

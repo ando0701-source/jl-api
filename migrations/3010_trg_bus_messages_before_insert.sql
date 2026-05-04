@@ -1,5 +1,5 @@
 -- 3010_trg_bus_messages_before_insert.sql
--- Canonical INSERT trigger for bus_messages Phase-0 protocol guard.
+-- Canonical INSERT trigger for bus_messages Phase-0 protocol guard plus Phase1A proposal_ref target-resolution hard gate.
 -- Uses the 3010 bus_messages trigger-family prefix while keeping one-trigger-per-file governance.
 
 DROP TRIGGER IF EXISTS trg_bus_messages_phase0_insert;
@@ -28,6 +28,125 @@ BEGIN
       OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.source_op_id') AS TEXT)), '') <> 'JL_PROPOSAL'
       OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.source_terminal') AS TEXT)), '') <> 'PROPOSAL'
       OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.resolution_mode') AS TEXT)), '') <> 'EXPLICIT_BUS_ID'
+    );
+
+
+
+  SELECT RAISE(ABORT, 'proposal_ref_not_found')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM bus_messages p
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+    );
+
+  SELECT RAISE(ABORT, 'proposal_ref_target_not_response')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND EXISTS (
+      SELECT 1
+      FROM bus_messages p
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+        AND p.msg_type <> 'RESPONSE'
+    );
+
+  SELECT RAISE(ABORT, 'proposal_ref_target_op_mismatch')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND EXISTS (
+      SELECT 1
+      FROM bus_messages p
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+        AND p.msg_type = 'RESPONSE'
+        AND p.op_id <> 'JL_PROPOSAL'
+    );
+
+  SELECT RAISE(ABORT, 'proposal_ref_target_terminal_mismatch')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND EXISTS (
+      SELECT 1
+      FROM bus_messages p
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+        AND p.msg_type = 'RESPONSE'
+        AND p.op_id = 'JL_PROPOSAL'
+        AND (p.state <> 'PROPOSAL' OR p.out_state <> 'PROPOSAL')
+    );
+
+  SELECT RAISE(ABORT, 'proposal_ref_flow_owner_mismatch')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND EXISTS (
+      SELECT 1
+      FROM bus_messages p
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+        AND p.msg_type = 'RESPONSE'
+        AND p.op_id = 'JL_PROPOSAL'
+        AND p.state = 'PROPOSAL'
+        AND p.out_state = 'PROPOSAL'
+        AND p.flow_owner_id <> NEW.flow_owner_id
+    );
+
+  SELECT RAISE(ABORT, 'proposal_ref_lane_mismatch')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND EXISTS (
+      SELECT 1
+      FROM bus_messages p
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+        AND p.msg_type = 'RESPONSE'
+        AND p.op_id = 'JL_PROPOSAL'
+        AND p.state = 'PROPOSAL'
+        AND p.out_state = 'PROPOSAL'
+        AND p.flow_owner_id = NEW.flow_owner_id
+        AND p.lane_id <> NEW.lane_id
+    );
+
+  SELECT RAISE(ABORT, 'proposal_ref_request_id_mismatch')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND EXISTS (
+      SELECT 1
+      FROM bus_messages p
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+        AND p.msg_type = 'RESPONSE'
+        AND p.op_id = 'JL_PROPOSAL'
+        AND p.state = 'PROPOSAL'
+        AND p.out_state = 'PROPOSAL'
+        AND p.flow_owner_id = NEW.flow_owner_id
+        AND p.lane_id = NEW.lane_id
+        AND p.request_id <> NEW.request_id
+    );
+
+  SELECT RAISE(ABORT, 'proposal_ref_origin_request_invalid')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND EXISTS (
+      SELECT 1
+      FROM bus_messages p
+      LEFT JOIN bus_messages q
+        ON q.bus_id = CAST(json_extract(p.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+        AND p.msg_type = 'RESPONSE'
+        AND p.op_id = 'JL_PROPOSAL'
+        AND p.state = 'PROPOSAL'
+        AND p.out_state = 'PROPOSAL'
+        AND p.flow_owner_id = NEW.flow_owner_id
+        AND p.lane_id = NEW.lane_id
+        AND p.request_id = NEW.request_id
+        AND (
+          COALESCE(TRIM(CAST(json_extract(p.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)), '') = ''
+          OR q.bus_id IS NULL
+          OR q.msg_type <> 'REQUEST'
+          OR q.op_id <> 'JL_PROPOSAL'
+          OR q.in_state <> 'NUL'
+          OR q.state IS NOT NULL
+          OR q.out_state IS NOT NULL
+          OR q.flow_owner_id <> NEW.flow_owner_id
+          OR q.lane_id <> NEW.lane_id
+          OR q.request_id <> NEW.request_id
+        )
     );
 
   SELECT RAISE(ABORT, 'invalid_response_terminal')

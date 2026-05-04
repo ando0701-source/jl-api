@@ -1,6 +1,7 @@
 import { Env } from "../lib/types";
 import { readJson, jsonResponse, HttpError, API_ERROR_CODES } from "../lib/http";
 import { validateBusLoose } from "../lib/validate";
+import { validateProposalRefTargetPreflight } from "../lib/proposal_ref_resolution";
 import { dbg, isDebugLiteEnabled } from "../lib/debug_lite";
 import { DEBUG_EVENT_KIND } from "../lib/debug_events";
 import { appendBusEvent, BUS_EVENT_CODES, ENQUEUE_CONSTRAINT_KINDS, ENQUEUE_DUPLICATE_REASONS } from "../lib/events";
@@ -13,6 +14,8 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
 
   const bus = await readJson(req);
   const x = validateBusLoose(bus);
+
+  await validateProposalRefTargetPreflight(env, x);
 
   // Canonicalize stored bus record (include transport queue fields)
   const busObj: any = x.bus_obj;
