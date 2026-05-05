@@ -1,5 +1,5 @@
 -- 3010_trg_bus_messages_before_update.sql
--- Canonical UPDATE trigger for bus_messages Phase-0 protocol guard plus Phase1A proposal_ref target-resolution hard gate.
+-- Canonical UPDATE trigger for bus_messages Phase-0 protocol guard plus Phase1A/Phase1B proposal_ref target-resolution and one-shot consumption hard gate.
 -- Uses the 3010 bus_messages trigger-family prefix while keeping one-trigger-per-file governance.
 
 DROP TRIGGER IF EXISTS trg_bus_messages_phase0_update;
@@ -147,6 +147,19 @@ BEGIN
           OR q.lane_id <> NEW.lane_id
           OR q.request_id <> NEW.request_id
         )
+    );
+
+
+  SELECT RAISE(ABORT, 'proposal_ref_already_consumed')
+  WHERE NEW.msg_type = 'REQUEST'
+    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
+    AND EXISTS (
+      SELECT 1
+      FROM bus_messages prior_req
+      WHERE prior_req.msg_type = 'REQUEST'
+        AND prior_req.op_id IN ('JL_COMMIT','JL_REJECT')
+        AND prior_req.bus_id <> NEW.bus_id
+        AND TRIM(CAST(json_extract(prior_req.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT)) = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
     );
 
   SELECT RAISE(ABORT, 'invalid_response_terminal')

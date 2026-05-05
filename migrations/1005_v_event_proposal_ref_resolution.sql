@@ -48,7 +48,14 @@ SELECT
     'origin_in_state', origin_in_state,
     'origin_flow_owner_id', origin_flow_owner_id,
     'origin_lane_id', origin_lane_id,
-    'origin_request_id', origin_request_id
+    'origin_request_id', origin_request_id,
+    'consuming_request_bus_id', consuming_request_bus_id,
+    'consuming_request_bus_ts', consuming_request_bus_ts,
+    'consuming_request_op_id', consuming_request_op_id,
+    'consuming_request_flow_owner_id', consuming_request_flow_owner_id,
+    'consuming_request_lane_id', consuming_request_lane_id,
+    'consuming_request_request_id', consuming_request_request_id,
+    'consumption_stage', consumption_stage
   ) AS data
 
 FROM v_proposal_ref_resolution

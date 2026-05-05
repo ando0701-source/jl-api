@@ -180,4 +180,34 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
       }
     );
   }
+
+
+  const priorConsumer = await env.DB.prepare(
+    `SELECT
+       bus_id,op_id,flow_owner_id,lane_id,request_id,bus_ts,q_state
+     FROM bus_messages
+     WHERE msg_type = 'REQUEST'
+       AND op_id IN ('JL_COMMIT','JL_REJECT')
+       AND bus_id <> ?
+       AND TRIM(CAST(json_extract(bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT)) = ?
+     ORDER BY bus_ts ASC, inserted_at ASC, bus_id ASC
+     LIMIT 1`
+  ).bind(x.bus_id, proposalRefBusId).first<any>();
+
+  if (priorConsumer) {
+    rejectProposalRef(
+      "proposal_ref_already_consumed",
+      "message.contents.proposal_ref.bus_id has already been targeted by an accepted JL_COMMIT/JL_REJECT request",
+      x,
+      {
+        proposal_ref_bus_id: proposalRefBusId,
+        consuming_request_bus_id: priorConsumer.bus_id,
+        consuming_request_op_id: priorConsumer.op_id,
+        consuming_request_flow_owner_id: priorConsumer.flow_owner_id,
+        consuming_request_lane_id: priorConsumer.lane_id,
+        consuming_request_request_id: priorConsumer.request_id,
+        consumption_stage: "accepted_target_request",
+      }
+    );
+  }
 }
