@@ -1,6 +1,7 @@
 import { Env } from "./types";
 import { HttpError, API_ERROR_CODES } from "./http";
 import { MESSAGE_TYPES, OP_IDS, TERMINAL_STATES } from "./transport_literals";
+import { FAILURE_CODES, FailureCode } from "./failure_codes";
 
 type ValidatedBusForResolution = {
   bus_id: string;
@@ -48,7 +49,7 @@ function getProposalRefBusId(x: ValidatedBusForResolution): string | null {
   return typeof busId === "string" && busId.trim() !== "" ? busId.trim() : null;
 }
 
-function rejectProposalRef(failureCode: string, message: string, x: ValidatedBusForResolution, extra: Record<string, unknown> = {}): never {
+function rejectProposalRef(failureCode: FailureCode, message: string, x: ValidatedBusForResolution, extra: Record<string, unknown> = {}): never {
   throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, message, {
     failure_code: failureCode,
     bus_id: x.bus_id,
@@ -76,7 +77,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
 
   if (!target) {
     rejectProposalRef(
-      "proposal_ref_not_found",
+      FAILURE_CODES.PROPOSAL_REF_NOT_FOUND,
       "message.contents.proposal_ref.bus_id does not resolve to an existing bus_messages row",
       x,
       { proposal_ref_bus_id: proposalRefBusId }
@@ -85,7 +86,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
 
   if (target.msg_type !== MESSAGE_TYPES.RESPONSE) {
     rejectProposalRef(
-      "proposal_ref_target_not_response",
+      FAILURE_CODES.PROPOSAL_REF_TARGET_NOT_RESPONSE,
       "message.contents.proposal_ref.bus_id must target a RESPONSE row",
       x,
       { proposal_ref_bus_id: proposalRefBusId, target_msg_type: target.msg_type }
@@ -94,7 +95,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
 
   if (target.op_id !== OP_IDS.JL_PROPOSAL) {
     rejectProposalRef(
-      "proposal_ref_target_op_mismatch",
+      FAILURE_CODES.PROPOSAL_REF_TARGET_OP_MISMATCH,
       "message.contents.proposal_ref.bus_id must target a JL_PROPOSAL response",
       x,
       { proposal_ref_bus_id: proposalRefBusId, target_op_id: target.op_id }
@@ -103,7 +104,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
 
   if (target.state !== TERMINAL_STATES.PROPOSAL || target.out_state !== TERMINAL_STATES.PROPOSAL) {
     rejectProposalRef(
-      "proposal_ref_target_terminal_mismatch",
+      FAILURE_CODES.PROPOSAL_REF_TARGET_TERMINAL_MISMATCH,
       "message.contents.proposal_ref.bus_id must target a JL_PROPOSAL response whose terminal is PROPOSAL",
       x,
       { proposal_ref_bus_id: proposalRefBusId, target_state: target.state, target_out_state: target.out_state }
@@ -112,7 +113,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
 
   if (target.flow_owner_id !== x.flow_owner_id) {
     rejectProposalRef(
-      "proposal_ref_flow_owner_mismatch",
+      FAILURE_CODES.PROPOSAL_REF_FLOW_OWNER_MISMATCH,
       "message.contents.proposal_ref.bus_id must target a proposal response in the same flow_owner_id",
       x,
       { proposal_ref_bus_id: proposalRefBusId, target_flow_owner_id: target.flow_owner_id }
@@ -121,7 +122,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
 
   if (target.lane_id !== x.lane_id) {
     rejectProposalRef(
-      "proposal_ref_lane_mismatch",
+      FAILURE_CODES.PROPOSAL_REF_LANE_MISMATCH,
       "message.contents.proposal_ref.bus_id must target a proposal response in the same lane_id",
       x,
       { proposal_ref_bus_id: proposalRefBusId, target_lane_id: target.lane_id }
@@ -130,7 +131,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
 
   if (target.request_id !== x.request_id) {
     rejectProposalRef(
-      "proposal_ref_request_id_mismatch",
+      FAILURE_CODES.PROPOSAL_REF_REQUEST_ID_MISMATCH,
       "message.contents.proposal_ref.bus_id must target a proposal response with the same request_id",
       x,
       { proposal_ref_bus_id: proposalRefBusId, target_request_id: target.request_id }
@@ -140,7 +141,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
   const echoRequestBusId = (target.echo_request_bus_id ?? "").trim();
   if (!echoRequestBusId) {
     rejectProposalRef(
-      "proposal_ref_origin_request_invalid",
+      FAILURE_CODES.PROPOSAL_REF_ORIGIN_REQUEST_INVALID,
       "target proposal response must carry contents.meta.echo_request_bus_id",
       x,
       { proposal_ref_bus_id: proposalRefBusId }
@@ -165,7 +166,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
     || origin.out_state !== null
   ) {
     rejectProposalRef(
-      "proposal_ref_origin_request_invalid",
+      FAILURE_CODES.PROPOSAL_REF_ORIGIN_REQUEST_INVALID,
       "target proposal response must echo a same-flow/same-lane/same-request JL_PROPOSAL request",
       x,
       {
@@ -196,7 +197,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
 
   if (priorConsumer) {
     rejectProposalRef(
-      "proposal_ref_already_consumed",
+      FAILURE_CODES.PROPOSAL_REF_ALREADY_CONSUMED,
       "message.contents.proposal_ref.bus_id has already been targeted by an accepted JL_COMMIT/JL_REJECT request",
       x,
       {
