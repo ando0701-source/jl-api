@@ -3,6 +3,22 @@
 -- Source of truth (canonical): CODEX/vocab/bus_events_catalog_seed_preview.tsv
 -- Target: Cloudflare D1 (SQLite)
 
+DELETE FROM bus_events_catalog where event_code in (
+  'AUTO_FINALIZE_ACK',
+  'BUS_RECOVERY_START',
+  'BUS_STALL_CLEARED',
+  'BUS_STALL_DETECTED',
+  'BUS_STALL_NOT_CLEARED',
+  'CLAIM_RECLAIMED',
+  'ECHO_REQUEST_NOT_FOUND',
+  'ENQUEUE_CONSTRAINT_FAILED',
+  'ENQUEUE_DUPLICATE',
+  'ENQUEUE_PRECHECK_REJECTED',
+  'LANE_MISMATCH',
+  'MISSING_ECHO_REQUEST_BUS_ID',
+  'REQUEST_ID_MISMATCH'
+);
+
 INSERT OR IGNORE INTO bus_events_catalog(
   event_code,severity,default_scope_kind,recovery_profile,
   required_data_keys,optional_data_keys,message_template

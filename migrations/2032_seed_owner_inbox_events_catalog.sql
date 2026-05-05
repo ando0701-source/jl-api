@@ -3,6 +3,8 @@
 -- Canonical source: CODEX/vocab/vocab.tsv (owner_inbox_events.event_code.<EVENT_CODE>)
 -- Target: Cloudflare D1 (SQLite)
 
+DELETE FROM owner_inbox_events_catalog;
+
 INSERT OR IGNORE INTO owner_inbox_events_catalog(
   event_code,severity,default_scope_kind,recovery_profile,
   required_data_keys,optional_data_keys,message_template

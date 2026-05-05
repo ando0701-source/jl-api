@@ -2,6 +2,14 @@
 -- Extends bus_events_catalog with dispatch lifecycle event codes.
 -- Safe for manual application after bus_events_catalog exists.
 
+DELETE FROM bus_events_catalog where event_code in (
+  'DISPATCH_REQUESTED',
+  'DISPATCH_ROUTE_NOT_FOUND',
+  'DISPATCH_ROUTE_DISABLED',
+  'DISPATCH_DELIVERY_SUCCEEDED',
+  'DISPATCH_DELIVERY_FAILED'
+);
+
 INSERT OR IGNORE INTO bus_events_catalog(
   event_code,severity,default_scope_kind,recovery_profile,
   message_template,required_data_keys,optional_data_keys,notes
