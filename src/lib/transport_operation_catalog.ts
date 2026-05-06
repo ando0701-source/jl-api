@@ -10,6 +10,14 @@ export const TRANSPORT_OPERATION_CATALOG = {
     auth_scope: "PUBLIC",
     handler_name: "handleDebugTxt",
   },
+
+  DIAG: {
+    name: "diag",
+    route_path: "/diag",
+    http_methods: ["GET"],
+    auth_scope: "AUTH_REQUIRED",
+    handler_name: "handleDiag",
+  },
   DEQUEUE: {
     name: "dequeue",
     route_path: "/dequeue",

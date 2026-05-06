@@ -4,6 +4,7 @@ import { authOrStealth404, isKnownRoute } from "./lib/auth";
 import { ROUTE_PATHS } from "./lib/routes";
 import { handleEnqueue } from "./handlers/enqueue";
 import { handleDequeue } from "./handlers/dequeue";
+import { handleDiag } from "./handlers/diag";
 import { handleFinalize } from "./handlers/finalize";
 import { handleLogsTsv } from "./handlers/logs_tsv";
 import { handleLogsTxt } from "./handlers/logs_txt";
@@ -74,6 +75,11 @@ export async function route(req: Request, env: Env): Promise<Response> {
   if (path === ROUTE_PATHS.DEQUEUE) {
     if (req.method !== "GET") throw new HttpError(405, API_ERROR_CODES.METHOD_NOT_ALLOWED, "Use GET");
     return await handleDequeue(req, env);
+  }
+
+  if (path === ROUTE_PATHS.DIAG) {
+    if (req.method !== "GET") throw new HttpError(405, API_ERROR_CODES.METHOD_NOT_ALLOWED, "Use GET");
+    return await handleDiag(req, env);
   }
 
   if (path === ROUTE_PATHS.FINALIZE) {
