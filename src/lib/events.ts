@@ -1,5 +1,9 @@
+import { BUS_EVENT_CODES } from "./bus_event_codes";
 import { Env } from "./types";
 import { nowEpochSec } from "./util";
+
+export { BUS_EVENT_CODES } from "./bus_event_codes";
+export type { BusEventCode } from "./bus_event_codes";
 
 function uuid(): string {
   // Cloudflare Workers supports crypto.randomUUID().
@@ -12,14 +16,6 @@ function uuid(): string {
     return `${ts}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
   }
 }
-
-export const BUS_EVENT_CODES = {
-  CLAIM_RECLAIMED: "CLAIM_RECLAIMED",
-  AUTO_FINALIZE_ACK: "AUTO_FINALIZE_ACK",
-  ENQUEUE_DUPLICATE: "ENQUEUE_DUPLICATE",
-  ENQUEUE_CONSTRAINT_FAILED: "ENQUEUE_CONSTRAINT_FAILED",
-  ENQUEUE_PRECHECK_REJECTED: "ENQUEUE_PRECHECK_REJECTED",
-} as const;
 
 export const CLAIM_RECLAIM_REASONS = ["CLAIM_TTL_EXPIRED"] as const;
 export type ClaimReclaimReason = typeof CLAIM_RECLAIM_REASONS[number];
