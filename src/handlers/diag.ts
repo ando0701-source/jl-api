@@ -36,6 +36,18 @@ const OTHER_WORKER = "WorkerB";
 const LANE = "LaneA";
 const OTHER_LANE = "LaneB";
 
+const KNOWN_TRIGGER_FAILURE_CODES = [
+  "proposal_ref_not_found",
+  "proposal_ref_target_not_response",
+  "proposal_ref_target_op_mismatch",
+  "proposal_ref_target_terminal_mismatch",
+  "proposal_ref_flow_owner_mismatch",
+  "proposal_ref_lane_mismatch",
+  "proposal_ref_request_id_mismatch",
+  "proposal_ref_origin_request_invalid",
+  "proposal_ref_already_consumed",
+] as const;
+
 function runId(): string {
   const compact = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
   let suffix = Math.floor(Math.random() * 1000000).toString().padStart(6, "0");
@@ -283,8 +295,29 @@ function errorText(e: unknown): string {
 }
 
 function failureCodeFromError(text: string): string {
+  for (const code of KNOWN_TRIGGER_FAILURE_CODES) {
+    if (text.includes(code)) return code;
+  }
   const prefix = text.split(":", 1)[0]?.trim() ?? "";
   return prefix || text.trim() || "UNKNOWN_ERROR";
+}
+
+function splitSqlStatements(sql: string): string[] {
+  return sql
+    .split(/;\s*(?:\r?\n|$)/g)
+    .map((stmt) => stmt.trim())
+    .filter((stmt) => stmt.length > 0);
+}
+
+async function runSqlStatements(env: Env, sql: string): Promise<void> {
+  for (const stmt of splitSqlStatements(sql)) {
+    await env.DB.prepare(stmt).run();
+  }
+}
+
+function diagBusIdFromKey(key: string, run_id: string): string {
+  const safe = key.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 120);
+  return `BUS_DIAG_${safe}_${run_id}`;
 }
 
 function compareScalar(value: number, compare: "eq" | "gte", expected: number): boolean {
@@ -312,7 +345,7 @@ async function runTriggerCase(env: Env, run_id: string, c: TriggerCase): Promise
   let observed = "OK";
   let note: string | null = null;
   try {
-    await env.DB.exec(c.sql);
+    await runSqlStatements(env, c.sql);
   } catch (e) {
     note = errorText(e);
     observed = failureCodeFromError(note);
@@ -345,12 +378,12 @@ async function runScalarCheck(env: Env, run_id: string, c: ScalarCheck): Promise
     value = failureCodeFromError(errorText(e));
     note = errorText(e);
   }
-  const result: DiagResult = { run_id, bus_id: null, key: c.key, value, status, note, created_at };
+  const result: DiagResult = { run_id, bus_id: diagBusIdFromKey(c.key, run_id), key: c.key, value, status, note, created_at };
   await storeResult(env, result);
   return result;
 }
 
-export async function handleDiag(_req: Request, env: Env): Promise<Response> {
+export async function handleDiag(req: Request, env: Env): Promise<Response> {
   const id = runId();
   const bus_ts = nowEpochSec();
   const results: DiagResult[] = [];
@@ -365,5 +398,7 @@ export async function handleDiag(_req: Request, env: Env): Promise<Response> {
     return acc;
   }, { total: 0, pass: 0, fail: 0, warn: 0, info: 0 });
 
-  return jsonResponse({ ok: summary.fail === 0, run_id: id, summary, results }, summary.fail === 0 ? 200 : 500);
+  const strict = new URL(req.url).searchParams.get("strict") === "1";
+  const httpStatus = strict && summary.fail > 0 ? 500 : 200;
+  return jsonResponse({ ok: summary.fail === 0, run_id: id, summary, results }, httpStatus);
 }
