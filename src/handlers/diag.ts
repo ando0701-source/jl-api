@@ -92,6 +92,10 @@ function requestEnvelope(
     schema_id: "2PLT_BUS/v1",
     bus_id,
     bus_ts,
+    q_state: "PENDING",
+    claimed_by: null,
+    claimed_at: null,
+    done_at: null,
     routing: { from_owner_id: MANAGER, to_owner_id: owner },
     message: {
       schema_id: "2PLT_MESSAGE/v1",
@@ -142,6 +146,10 @@ function proposalResponse(
     schema_id: "2PLT_BUS/v1",
     bus_id,
     bus_ts,
+    q_state: "PENDING",
+    claimed_by: null,
+    claimed_at: null,
+    done_at: null,
     routing: { from_owner_id: owner, to_owner_id: MANAGER },
     message: {
       schema_id: "2PLT_MESSAGE/v1",
