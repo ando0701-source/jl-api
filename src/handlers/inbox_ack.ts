@@ -85,7 +85,7 @@ export async function handleInboxAck(req: Request, env: Env): Promise<Response> 
 
   const inboxId = String((picked as any).inbox_id);
   // Inbox ACK is owner-local acknowledgement only.
-  // It updates owner_inbox state and emits owner_inbox_events, but does not finalize bus_messages.
+  // It updates owner_inbox status and emits owner_inbox_events, but does not finalize bus_messages.
   if (String((picked as any).q_state) !== BUS_QUEUE_STATES.DONE) {
     await env.DB.prepare(
       `UPDATE owner_inbox

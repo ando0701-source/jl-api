@@ -35,6 +35,18 @@ const WORKER = "WorkerA";
 const OTHER_WORKER = "WorkerB";
 const LANE = "LaneA";
 const OTHER_LANE = "LaneB";
+const REQUEST_DOC_BY_OP_ID: Record<"JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT", string> = {
+  JL_PROPOSAL: "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL",
+  JL_COMMIT: "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT",
+  JL_REJECT: "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT",
+};
+
+const PROPOSAL_RESPONSE_DOC_BY_TERMINAL: Record<"PROPOSAL" | "UNRESOLVED" | "ABEND", string> = {
+  PROPOSAL: "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL",
+  UNRESOLVED: "2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL",
+  ABEND: "2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL",
+};
+
 
 const KNOWN_TRIGGER_FAILURE_CODES = [
   "proposal_ref_not_found",
@@ -75,8 +87,8 @@ function busJsonSql(obj: unknown): string {
 
 function insertBusSql(obj: any): string {
   const m = obj.message;
-  return `INSERT INTO bus_messages(schema_id,bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,in_state,state,out_state,bus_json)
-VALUES('2PLT_BUS/v1',${sqlQuote(obj.bus_id)},${Number(obj.bus_ts)},'PENDING',${sqlQuote(obj.routing.from_owner_id)},${sqlQuote(obj.routing.to_owner_id)},NULL,NULL,NULL,'2PLT_MESSAGE/v1',${sqlQuote(m.msg_type)},${sqlQuote(m.op_id)},${sqlQuote(m.flow.owner_id)},${sqlQuote(m.flow.lane_id)},${sqlQuote(m.request_id)},${sqlQuote(m.in_state)},${sqlQuote(m.state)},${sqlQuote(m.out_state)},${busJsonSql(obj)});`;
+  return `INSERT INTO bus_messages(schema_id,bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,bus_json)
+VALUES('2PLT_BUS/v1',${sqlQuote(obj.bus_id)},${Number(obj.bus_ts)},'PENDING',${sqlQuote(obj.routing.from_owner_id)},${sqlQuote(obj.routing.to_owner_id)},NULL,NULL,NULL,'2PLT_MESSAGE/v1',${sqlQuote(m.msg_type)},${sqlQuote(m.op_id)},${sqlQuote(m.flow.owner_id)},${sqlQuote(m.flow.lane_id)},${sqlQuote(m.request_id)},${busJsonSql(obj)});`;
 }
 
 function requestEnvelope(
@@ -90,6 +102,7 @@ function requestEnvelope(
 ): any {
   return {
     schema_id: "2PLT_BUS/v1",
+    doc_id: REQUEST_DOC_BY_OP_ID[op_id],
     bus_id,
     bus_ts,
     q_state: "PENDING",
@@ -103,7 +116,6 @@ function requestEnvelope(
       op_id,
       flow: { owner_id: owner, lane_id },
       request_id,
-      in_state: op_id === "JL_PROPOSAL" ? "NUL" : "PROPOSAL",
       contents,
     },
   };
@@ -127,7 +139,7 @@ function proposalResponse(
   owner: string,
   lane_id: string,
   request_id: string,
-  state: "PROPOSAL" | "UNRESOLVED" | "ABEND",
+  terminal: "PROPOSAL" | "UNRESOLVED" | "ABEND",
   echo_request_bus_id: string,
   bus_ts: number,
 ): any {
@@ -135,15 +147,16 @@ function proposalResponse(
     profile_doc_id: "2PLT_50_PROFILE_JUDGEMENT_LOG_PROPOSAL",
     meta: { echo_request_bus_id },
   };
-  if (state === "PROPOSAL") {
+  if (terminal === "PROPOSAL") {
     contents.ops = [{ kind: "fs.write", path: "scratch/diag/proposal.txt", content: "diag trigger setup" }];
-  } else if (state === "UNRESOLVED") {
+  } else if (terminal === "UNRESOLVED") {
     contents.required_to_resolve = [{ field: "diag", reason: "trigger_probe" }];
   } else {
     contents.reason_code = "PROTOCOL_VIOLATION";
   }
   return {
     schema_id: "2PLT_BUS/v1",
+    doc_id: PROPOSAL_RESPONSE_DOC_BY_TERMINAL[terminal],
     bus_id,
     bus_ts,
     q_state: "PENDING",
@@ -157,10 +170,7 @@ function proposalResponse(
       op_id: "JL_PROPOSAL",
       flow: { owner_id: owner, lane_id },
       request_id,
-      in_state: "NUL",
       contents,
-      state,
-      out_state: state,
     },
   };
 }
@@ -189,11 +199,11 @@ function targetRequest(
 
 function phase1aCases(run_id: string, bus_ts: number): TriggerCase[] {
   const cases: TriggerCase[] = [];
-  const setupPair = (caseId: string, owner = WORKER, lane_id = LANE, request_id?: string, state: "PROPOSAL" | "UNRESOLVED" | "ABEND" = "PROPOSAL", orphan = false) => {
+  const setupPair = (caseId: string, owner = WORKER, lane_id = LANE, request_id?: string, terminal: "PROPOSAL" | "UNRESOLVED" | "ABEND" = "PROPOSAL", orphan = false) => {
     const rid = request_id ?? `REQ_DIAG_${caseId}_${run_id}`;
     const preq = proposalRequest(`BUS_DIAG_${caseId}_REQ_PROPOSAL_${run_id}`, owner, lane_id, rid, bus_ts);
     const echo = orphan ? `BUS_DIAG_${caseId}_UNKNOWN_ORIGIN_${run_id}` : preq.bus_id;
-    const presp = proposalResponse(`BUS_DIAG_${caseId}_RESP_${state}_${run_id}`, owner, lane_id, rid, state, echo, bus_ts);
+    const presp = proposalResponse(`BUS_DIAG_${caseId}_RESP_${terminal}_${run_id}`, owner, lane_id, rid, terminal, echo, bus_ts);
     return { rid, preq, presp };
   };
   const add = (caseId: string, expected: string, target: any, setup: any[] = []) => {

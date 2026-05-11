@@ -64,9 +64,6 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
     op_id: x.op_id,
     lane_id: x.lane_id,
     request_id: x.request_id,
-    in_state: x.in_state,
-    state: x.state,
-    out_state: x.out_state,
   });
 
   const stmt = env.DB.prepare(
@@ -76,16 +73,14 @@ export async function handleEnqueue(req: Request, env: Env): Promise<Response> {
       claimed_by,claimed_at,done_at,
       message_schema_id,msg_type,op_id,
       flow_owner_id,lane_id,request_id,
-      in_state,state,out_state,
       bus_json
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     x.schema_id, x.bus_id, x.bus_ts, q_state,
     x.from_owner_id, x.to_owner_id,
     claimed_by, claimed_at, done_at,
     x.message_schema_id, x.msg_type, x.op_id,
     x.flow_owner_id, x.lane_id, x.request_id,
-    x.in_state, x.state, x.out_state,
     bus_json
   );
 

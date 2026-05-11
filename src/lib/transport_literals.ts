@@ -40,24 +40,7 @@ export const OP_IDS = {
 
 export type OpId = typeof OP_IDS[keyof typeof OP_IDS];
 
-export const FLOW_STATES = {
-  NUL: "NUL",
-  PROPOSAL: "PROPOSAL",
-  COMMIT: "COMMIT",
-  UNRESOLVED: "UNRESOLVED",
-  ABEND: "ABEND",
-} as const;
 
-export type FlowState = typeof FLOW_STATES[keyof typeof FLOW_STATES];
-
-export const TERMINAL_STATES = {
-  PROPOSAL: "PROPOSAL",
-  COMMIT: "COMMIT",
-  UNRESOLVED: "UNRESOLVED",
-  ABEND: "ABEND",
-} as const;
-
-export type TerminalState = typeof TERMINAL_STATES[keyof typeof TERMINAL_STATES];
 
 export const PROFILE_DOC_IDS = {
   JL_PROPOSAL: "2PLT_50_PROFILE_JUDGEMENT_LOG_PROPOSAL",
@@ -159,13 +142,7 @@ export function isOpId(v: string): v is OpId {
   return v === OP_IDS.JL_PROPOSAL || v === OP_IDS.JL_COMMIT || v === OP_IDS.JL_REJECT;
 }
 
-export function isFlowState(v: string): v is FlowState {
-  return v === FLOW_STATES.NUL || v === FLOW_STATES.PROPOSAL || v === FLOW_STATES.COMMIT || v === FLOW_STATES.UNRESOLVED || v === FLOW_STATES.ABEND;
-}
 
-export function isTerminalState(v: string): v is TerminalState {
-  return v === TERMINAL_STATES.PROPOSAL || v === TERMINAL_STATES.COMMIT || v === TERMINAL_STATES.UNRESOLVED || v === TERMINAL_STATES.ABEND;
-}
 
 export function isProfileDocId(v: string): v is ProfileDocId {
   return v === PROFILE_DOC_IDS.JL_PROPOSAL || v === PROFILE_DOC_IDS.JL_COMMIT || v === PROFILE_DOC_IDS.JL_REJECT;
@@ -186,20 +163,4 @@ export function defaultProfileDocIdForOpId(opId: OpId): ProfileDocId {
   }
 }
 
-export function isAllowedRequestInState(opId: OpId, inState: FlowState): boolean {
-  return (opId === OP_IDS.JL_PROPOSAL && inState === FLOW_STATES.NUL)
-    || ((opId === OP_IDS.JL_COMMIT || opId === OP_IDS.JL_REJECT) && inState === FLOW_STATES.PROPOSAL);
-}
 
-export function isAllowedResponseTerminal(opId: OpId, inState: FlowState, terminal: TerminalState): boolean {
-  if (opId === OP_IDS.JL_PROPOSAL && inState === FLOW_STATES.NUL) {
-    return terminal === TERMINAL_STATES.PROPOSAL || terminal === TERMINAL_STATES.UNRESOLVED || terminal === TERMINAL_STATES.ABEND;
-  }
-  if (opId === OP_IDS.JL_COMMIT && inState === FLOW_STATES.PROPOSAL) {
-    return terminal === TERMINAL_STATES.COMMIT || terminal === TERMINAL_STATES.UNRESOLVED || terminal === TERMINAL_STATES.ABEND;
-  }
-  if (opId === OP_IDS.JL_REJECT && inState === FLOW_STATES.PROPOSAL) {
-    return terminal === TERMINAL_STATES.UNRESOLVED || terminal === TERMINAL_STATES.ABEND;
-  }
-  return false;
-}

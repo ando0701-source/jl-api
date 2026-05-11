@@ -1,6 +1,7 @@
 -- 3010_trg_bus_messages_before_insert.sql
--- Canonical INSERT trigger for bus_messages Phase-0 protocol guard plus Phase1A/Phase1B proposal_ref target-resolution and one-shot consumption hard gate.
--- Uses the 3010 bus_messages trigger-family prefix while keeping one-trigger-per-file governance.
+-- Canonical INSERT trigger for bus_messages after removing redundant concrete message status fields.
+-- Uses doc_id and bus_json content checks instead of message in/out/status columns.
+-- Target: Cloudflare D1 (SQLite)
 
 DROP TRIGGER IF EXISTS trg_bus_messages_phase0_insert;
 
@@ -11,14 +12,35 @@ BEGIN
   SELECT RAISE(ABORT, 'invalid_op_id')
   WHERE NEW.op_id NOT IN ('JL_PROPOSAL','JL_COMMIT','JL_REJECT');
 
-  SELECT RAISE(ABORT, 'invalid_request_op_in_state')
+  SELECT RAISE(ABORT, 'invalid_contract_doc_id')
+  WHERE COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT)), '') = '';
+
+  SELECT RAISE(ABORT, 'invalid_request_contract_doc_id')
   WHERE NEW.msg_type = 'REQUEST'
     AND NOT (
-      (NEW.op_id = 'JL_PROPOSAL' AND NEW.in_state = 'NUL')
-      OR (NEW.op_id = 'JL_COMMIT' AND NEW.in_state = 'PROPOSAL')
-      OR (NEW.op_id = 'JL_REJECT' AND NEW.in_state = 'PROPOSAL')
+      (NEW.op_id = 'JL_PROPOSAL' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL')
+      OR (NEW.op_id = 'JL_COMMIT' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT')
+      OR (NEW.op_id = 'JL_REJECT' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT')
     );
 
+  SELECT RAISE(ABORT, 'invalid_response_contract_doc_id')
+  WHERE NEW.msg_type = 'RESPONSE'
+    AND NOT (
+      (NEW.op_id = 'JL_PROPOSAL' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) IN (
+        '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL',
+        '2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL',
+        '2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL'
+      ))
+      OR (NEW.op_id = 'JL_COMMIT' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) IN (
+        '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT',
+        '2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_COMMIT',
+        '2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_COMMIT'
+      ))
+      OR (NEW.op_id = 'JL_REJECT' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) IN (
+        '2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_REJECT',
+        '2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_REJECT'
+      ))
+    );
 
   SELECT RAISE(ABORT, 'invalid_proposal_ref')
   WHERE NEW.msg_type = 'REQUEST'
@@ -29,8 +51,6 @@ BEGIN
       OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.source_terminal') AS TEXT)), '') <> 'PROPOSAL'
       OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.resolution_mode') AS TEXT)), '') <> 'EXPLICIT_BUS_ID'
     );
-
-
 
   SELECT RAISE(ABORT, 'proposal_ref_not_found')
   WHERE NEW.msg_type = 'REQUEST'
@@ -71,7 +91,7 @@ BEGIN
       WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
-        AND (p.state <> 'PROPOSAL' OR p.out_state <> 'PROPOSAL')
+        AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
     );
 
   SELECT RAISE(ABORT, 'proposal_ref_flow_owner_mismatch')
@@ -83,8 +103,7 @@ BEGIN
       WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
-        AND p.state = 'PROPOSAL'
-        AND p.out_state = 'PROPOSAL'
+        AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
         AND p.flow_owner_id <> NEW.flow_owner_id
     );
 
@@ -97,8 +116,7 @@ BEGIN
       WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
-        AND p.state = 'PROPOSAL'
-        AND p.out_state = 'PROPOSAL'
+        AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
         AND p.flow_owner_id = NEW.flow_owner_id
         AND p.lane_id <> NEW.lane_id
     );
@@ -112,8 +130,7 @@ BEGIN
       WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
-        AND p.state = 'PROPOSAL'
-        AND p.out_state = 'PROPOSAL'
+        AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
         AND p.flow_owner_id = NEW.flow_owner_id
         AND p.lane_id = NEW.lane_id
         AND p.request_id <> NEW.request_id
@@ -130,8 +147,7 @@ BEGIN
       WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
-        AND p.state = 'PROPOSAL'
-        AND p.out_state = 'PROPOSAL'
+        AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
         AND p.flow_owner_id = NEW.flow_owner_id
         AND p.lane_id = NEW.lane_id
         AND p.request_id = NEW.request_id
@@ -140,15 +156,12 @@ BEGIN
           OR q.bus_id IS NULL
           OR q.msg_type <> 'REQUEST'
           OR q.op_id <> 'JL_PROPOSAL'
-          OR q.in_state <> 'NUL'
-          OR q.state IS NOT NULL
-          OR q.out_state IS NOT NULL
+          OR CAST(json_extract(q.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL'
           OR q.flow_owner_id <> NEW.flow_owner_id
           OR q.lane_id <> NEW.lane_id
           OR q.request_id <> NEW.request_id
         )
     );
-
 
   SELECT RAISE(ABORT, 'proposal_ref_already_consumed')
   WHERE NEW.msg_type = 'REQUEST'
@@ -161,15 +174,6 @@ BEGIN
         AND prior_req.bus_id <> NEW.bus_id
         AND TRIM(CAST(json_extract(prior_req.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT)) = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
     );
-
-  SELECT RAISE(ABORT, 'invalid_response_terminal')
-  WHERE NEW.msg_type = 'RESPONSE'
-    AND NOT (
-      (NEW.op_id = 'JL_PROPOSAL' AND NEW.in_state = 'NUL' AND NEW.state IN ('PROPOSAL','UNRESOLVED','ABEND') AND NEW.out_state = NEW.state)
-      OR (NEW.op_id = 'JL_COMMIT' AND NEW.in_state = 'PROPOSAL' AND NEW.state IN ('COMMIT','UNRESOLVED','ABEND') AND NEW.out_state = NEW.state)
-      OR (NEW.op_id = 'JL_REJECT' AND NEW.in_state = 'PROPOSAL' AND NEW.state IN ('UNRESOLVED','ABEND') AND NEW.out_state = NEW.state)
-    );
-
 
   SELECT RAISE(ABORT, 'missing_echo_request_bus_id')
   WHERE NEW.msg_type = 'RESPONSE'
@@ -202,14 +206,18 @@ BEGIN
   SELECT RAISE(ABORT, 'invalid_response_payload')
   WHERE NEW.msg_type = 'RESPONSE'
     AND (
-      (NEW.state = 'PROPOSAL' AND COALESCE((json_type(NEW.bus_json, '$.message.contents.ops') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.ops')) > 0), 0) = 0)
-      OR (NEW.state = 'COMMIT' AND json_type(NEW.bus_json, '$.message.contents.result') IS NULL)
-      OR (NEW.state = 'UNRESOLVED' AND COALESCE((json_type(NEW.bus_json, '$.message.contents.required_to_resolve') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.required_to_resolve')) > 0), 0) = 0)
-      OR (NEW.state = 'ABEND' AND COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.reason_code') AS TEXT)), '') = '')
+      (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
+        AND COALESCE((json_type(NEW.bus_json, '$.message.contents.ops') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.ops')) > 0), 0) = 0)
+      OR (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT'
+        AND json_type(NEW.bus_json, '$.message.contents.result') IS NULL)
+      OR (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) LIKE '%_UNRESOLVED_%'
+        AND COALESCE((json_type(NEW.bus_json, '$.message.contents.required_to_resolve') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.required_to_resolve')) > 0), 0) = 0)
+      OR (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) LIKE '%_ABEND_%'
+        AND COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.reason_code') AS TEXT)), '') = '')
     );
 
   SELECT RAISE(ABORT, 'invalid_artifact_completion')
   WHERE NEW.msg_type = 'RESPONSE'
-    AND NEW.state <> 'COMMIT'
+    AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT'
     AND json_type(NEW.bus_json, '$.message.contents.result') IS NOT NULL;
 END;

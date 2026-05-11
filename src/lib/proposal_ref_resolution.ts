@@ -1,6 +1,6 @@
 import { Env } from "./types";
 import { HttpError, API_ERROR_CODES } from "./http";
-import { MESSAGE_TYPES, OP_IDS, TERMINAL_STATES } from "./transport_literals";
+import { MESSAGE_TYPES, OP_IDS } from "./transport_literals";
 import { FAILURE_CODES, FailureCode } from "./failure_codes";
 
 type ValidatedBusForResolution = {
@@ -18,12 +18,10 @@ type ProposalTargetRow = {
   bus_ts: number;
   msg_type: string;
   op_id: string;
+  contract_doc_id: string | null;
   flow_owner_id: string;
   lane_id: string;
   request_id: string;
-  in_state: string;
-  state: string | null;
-  out_state: string | null;
   from_owner_id: string;
   to_owner_id: string;
   echo_request_bus_id: string | null;
@@ -33,13 +31,14 @@ type OriginRequestRow = {
   bus_id: string;
   msg_type: string;
   op_id: string;
+  contract_doc_id: string | null;
   flow_owner_id: string;
   lane_id: string;
   request_id: string;
-  in_state: string;
-  state: string | null;
-  out_state: string | null;
 };
+
+const PROPOSAL_RESPONSE_DOC_ID = "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL";
+const ORIGIN_REQUEST_DOC_ID = "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL";
 
 function getProposalRefBusId(x: ValidatedBusForResolution): string | null {
   if (x.msg_type !== MESSAGE_TYPES.REQUEST) return null;
@@ -67,7 +66,9 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
 
   const target = await env.DB.prepare(
     `SELECT
-       bus_id,bus_ts,msg_type,op_id,flow_owner_id,lane_id,request_id,in_state,state,out_state,
+       bus_id,bus_ts,msg_type,op_id,
+       CAST(json_extract(bus_json, '$.doc_id') AS TEXT) AS contract_doc_id,
+       flow_owner_id,lane_id,request_id,
        from_owner_id,to_owner_id,
        CAST(json_extract(bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT) AS echo_request_bus_id
      FROM bus_messages
@@ -102,12 +103,12 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
     );
   }
 
-  if (target.state !== TERMINAL_STATES.PROPOSAL || target.out_state !== TERMINAL_STATES.PROPOSAL) {
+  if (target.contract_doc_id !== PROPOSAL_RESPONSE_DOC_ID) {
     rejectProposalRef(
       FAILURE_CODES.PROPOSAL_REF_TARGET_TERMINAL_MISMATCH,
-      "message.contents.proposal_ref.bus_id must target a JL_PROPOSAL response whose terminal is PROPOSAL",
+      "message.contents.proposal_ref.bus_id must target a JL_PROPOSAL proposal response contract",
       x,
-      { proposal_ref_bus_id: proposalRefBusId, target_state: target.state, target_out_state: target.out_state }
+      { proposal_ref_bus_id: proposalRefBusId, target_contract_doc_id: target.contract_doc_id }
     );
   }
 
@@ -149,7 +150,10 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
   }
 
   const origin = await env.DB.prepare(
-    `SELECT bus_id,msg_type,op_id,flow_owner_id,lane_id,request_id,in_state,state,out_state
+    `SELECT
+       bus_id,msg_type,op_id,
+       CAST(json_extract(bus_json, '$.doc_id') AS TEXT) AS contract_doc_id,
+       flow_owner_id,lane_id,request_id
      FROM bus_messages
      WHERE bus_id = ?
      LIMIT 1`
@@ -158,12 +162,10 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
   if (!origin
     || origin.msg_type !== MESSAGE_TYPES.REQUEST
     || origin.op_id !== OP_IDS.JL_PROPOSAL
+    || origin.contract_doc_id !== ORIGIN_REQUEST_DOC_ID
     || origin.flow_owner_id !== x.flow_owner_id
     || origin.lane_id !== x.lane_id
     || origin.request_id !== x.request_id
-    || origin.in_state !== "NUL"
-    || origin.state !== null
-    || origin.out_state !== null
   ) {
     rejectProposalRef(
       FAILURE_CODES.PROPOSAL_REF_ORIGIN_REQUEST_INVALID,
@@ -175,13 +177,13 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
         origin_found: !!origin,
         origin_msg_type: origin?.msg_type ?? null,
         origin_op_id: origin?.op_id ?? null,
+        origin_contract_doc_id: origin?.contract_doc_id ?? null,
         origin_flow_owner_id: origin?.flow_owner_id ?? null,
         origin_lane_id: origin?.lane_id ?? null,
         origin_request_id: origin?.request_id ?? null,
       }
     );
   }
-
 
   const priorConsumer = await env.DB.prepare(
     `SELECT

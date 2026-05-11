@@ -139,7 +139,7 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
        )
        AND claimed_by IS NULL
        RETURNING bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,
-                 message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,in_state,state,out_state,bus_json,inserted_at`
+                 message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,bus_json,inserted_at`
     ).bind(claimedBy, now, ownerId).first();
 
     if (!row) {
@@ -208,7 +208,7 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
 
       const row = await env.DB.prepare(
         `SELECT bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,
-                message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,in_state,state,out_state,bus_json,inserted_at
+                message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,bus_json,inserted_at
          FROM bus_messages
          WHERE bus_id = ?`
       ).bind(busId).first();

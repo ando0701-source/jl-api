@@ -4,6 +4,8 @@
 -- Target: Cloudflare D1 (SQLite)
 -- NOTE: bus_ts / claimed_at / done_at are epoch seconds.
 
+DROP TABLE IF EXISTS bus_messages;
+
 CREATE TABLE IF NOT EXISTS bus_messages (
   -- ===== 2PLT_BUS/v1 required keys =====
   schema_id TEXT NOT NULL CHECK (schema_id = '2PLT_BUS/v1'),
@@ -29,22 +31,11 @@ CREATE TABLE IF NOT EXISTS bus_messages (
   lane_id       TEXT NOT NULL,
   request_id    TEXT NOT NULL,
 
-  in_state  TEXT NOT NULL CHECK (in_state IN ('NUL','PROPOSAL','COMMIT','UNRESOLVED','ABEND')),
-  state     TEXT CHECK (state IN ('PROPOSAL','COMMIT','UNRESOLVED','ABEND')),
-  out_state TEXT CHECK (out_state IN ('PROPOSAL','COMMIT','UNRESOLVED','ABEND')),
-
   -- ===== Raw payload =====
   bus_json TEXT NOT NULL,
 
   -- server-side insertion time (audit convenience)
-  inserted_at INTEGER NOT NULL DEFAULT (unixepoch()),
-
-  -- ===== Minimal 2PLT consistency =====
-  CHECK (
-    (msg_type='REQUEST'  AND state IS NULL AND out_state IS NULL)
-    OR
-    (msg_type='RESPONSE' AND state IS NOT NULL AND out_state = state)
-  )
+  inserted_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE INDEX IF NOT EXISTS idx_inbox

@@ -25,8 +25,7 @@ SELECT
   p.bus_ts AS target_bus_ts,
   p.msg_type AS target_msg_type,
   p.op_id AS target_op_id,
-  p.state AS target_state,
-  p.out_state AS target_out_state,
+  CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) AS target_contract_doc_id,
   p.flow_owner_id AS target_flow_owner_id,
   p.lane_id AS target_lane_id,
   p.request_id AS target_request_id,
@@ -35,7 +34,7 @@ SELECT
   q.bus_id AS origin_request_bus_id,
   q.msg_type AS origin_msg_type,
   q.op_id AS origin_op_id,
-  q.in_state AS origin_in_state,
+  CAST(json_extract(q.bus_json, '$.doc_id') AS TEXT) AS origin_contract_doc_id,
   q.flow_owner_id AS origin_flow_owner_id,
   q.lane_id AS origin_lane_id,
   q.request_id AS origin_request_id,
@@ -53,7 +52,7 @@ SELECT
     WHEN p.bus_id IS NULL THEN 'PROPOSAL_REF_NOT_FOUND'
     WHEN p.msg_type <> 'RESPONSE' THEN 'PROPOSAL_REF_TARGET_NOT_RESPONSE'
     WHEN p.op_id <> 'JL_PROPOSAL' THEN 'PROPOSAL_REF_TARGET_OP_MISMATCH'
-    WHEN p.state <> 'PROPOSAL' OR p.out_state <> 'PROPOSAL' THEN 'PROPOSAL_REF_TARGET_TERMINAL_MISMATCH'
+    WHEN CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL' THEN 'PROPOSAL_REF_TARGET_TERMINAL_MISMATCH'
     WHEN p.flow_owner_id <> r.flow_owner_id THEN 'PROPOSAL_REF_FLOW_OWNER_MISMATCH'
     WHEN p.lane_id <> r.lane_id THEN 'PROPOSAL_REF_LANE_MISMATCH'
     WHEN p.request_id <> r.request_id THEN 'PROPOSAL_REF_REQUEST_ID_MISMATCH'
@@ -61,8 +60,7 @@ SELECT
     WHEN q.bus_id IS NULL THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
     WHEN q.msg_type <> 'REQUEST' THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
     WHEN q.op_id <> 'JL_PROPOSAL' THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
-    WHEN q.in_state <> 'NUL' THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
-    WHEN q.state IS NOT NULL OR q.out_state IS NOT NULL THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
+    WHEN CAST(json_extract(q.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL' THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
     WHEN q.flow_owner_id <> r.flow_owner_id THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
     WHEN q.lane_id <> r.lane_id THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
     WHEN q.request_id <> r.request_id THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'

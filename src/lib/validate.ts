@@ -3,42 +3,89 @@ import { BUS_SCHEMA_ID, MESSAGE_SCHEMA_ID } from "./schema";
 import {
   MESSAGE_TYPES,
   BusMessageType,
-  FlowState,
   OpId,
   ProfileDocId,
-  TerminalState,
   defaultProfileDocIdForOpId,
-  isAllowedRequestInState,
-  isAllowedResponseTerminal,
   isBusMessageType,
-  isFlowState,
   isIoMode,
   isOpId,
   isOpKind,
   isProfileDocId,
   isReasonCode,
-  isTerminalState,
   OP_KINDS,
   IDENTIFIER_REGEX,
   OWNER_ID_RESERVED_LITERALS,
   LANE_ID_RESERVED_LITERALS,
 } from "./transport_literals";
 
+type ResponseTerminal = "PROPOSAL" | "COMMIT" | "UNRESOLVED" | "ABEND";
+
+const REQUEST_DOC_BY_OP_ID: Record<OpId, string> = {
+  JL_PROPOSAL: "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL",
+  JL_COMMIT: "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT",
+  JL_REJECT: "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT",
+};
+
+const RESPONSE_DOCS_BY_OP_ID: Record<OpId, string[]> = {
+  JL_PROPOSAL: [
+    "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL",
+    "2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL",
+    "2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL",
+  ],
+  JL_COMMIT: [
+    "2PLT_60_IO_CONTRACT_RESPONDER_COMMIT",
+    "2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_COMMIT",
+    "2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_COMMIT",
+  ],
+  JL_REJECT: [
+    "2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_REJECT",
+    "2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_REJECT",
+  ],
+};
+
+function responseTerminalForDocId(docId: string): ResponseTerminal | null {
+  if (docId === "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL") return "PROPOSAL";
+  if (docId === "2PLT_60_IO_CONTRACT_RESPONDER_COMMIT") return "COMMIT";
+  if (docId.includes("_UNRESOLVED_")) return "UNRESOLVED";
+  if (docId.includes("_ABEND_")) return "ABEND";
+  return null;
+}
+
+function validateContractDocForMessage(docId: string, msgType: BusMessageType, opId: OpId): ResponseTerminal | null {
+  if (msgType === MESSAGE_TYPES.REQUEST) {
+    const expected = REQUEST_DOC_BY_OP_ID[opId];
+    if (docId !== expected) {
+      throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "doc_id does not match request op_id", { doc_id: docId, op_id: opId, expected_doc_id: expected });
+    }
+    return null;
+  }
+
+  const allowed = RESPONSE_DOCS_BY_OP_ID[opId];
+  if (!allowed.includes(docId)) {
+    throw new HttpError(400, API_ERROR_CODES.TERMINAL_NOT_ALLOWED, "doc_id does not match response op_id", { doc_id: docId, op_id: opId, allowed_doc_ids: allowed });
+  }
+  const terminal = responseTerminalForDocId(docId);
+  if (!terminal) {
+    throw new HttpError(400, API_ERROR_CODES.TERMINAL_NOT_ALLOWED, "response doc_id does not resolve to a response terminal", { doc_id: docId, op_id: opId });
+  }
+  return terminal;
+}
+
 export function getPath(obj: any, path: string): any {
   const parts = path.split(".");
   let cur = obj;
-  for (const p of parts) {
-    if (cur == null || typeof cur !== "object" || !(p in cur)) return undefined;
-    cur = cur[p];
+  for (const part of parts) {
+    if (cur == null || typeof cur !== "object" || !(part in cur)) return undefined;
+    cur = cur[part];
   }
   return cur;
 }
 
 export function requireFields(obj: any, paths: string[]): void {
   const missing: string[] = [];
-  for (const p of paths) {
-    const v = getPath(obj, p);
-    if (v === undefined || v === null || v === "") missing.push(p);
+  for (const path of paths) {
+    const v = getPath(obj, path);
+    if (v === undefined || v === null || v === "") missing.push(path);
   }
   if (missing.length) {
     throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "Missing required fields", { missing });
@@ -80,10 +127,8 @@ function validateOpsArray(opsRaw: unknown): Record<string, unknown>[] {
     item.kind = kindRaw;
     item.path = validateRepoRelativePath(item.path, { index, kind: kindRaw });
 
-    if (kindRaw === OP_KINDS.FS_WRITE) {
-      if (typeof item.content !== "string") {
-        throw new HttpError(400, API_ERROR_CODES.INVALID_OPS, "fs.write requires string content", { index, kind: kindRaw });
-      }
+    if (kindRaw === OP_KINDS.FS_WRITE && typeof item.content !== "string") {
+      throw new HttpError(400, API_ERROR_CODES.INVALID_OPS, "fs.write requires string content", { index, kind: kindRaw });
     }
     if (kindRaw === OP_KINDS.FS_PATCH_UNIFIED) {
       if (!Array.isArray(item.unified_diff_lines) || item.unified_diff_lines.some((v) => typeof v !== "string")) {
@@ -118,22 +163,6 @@ function validateOpIdLiteral(value: unknown, fieldPath: string): OpId {
   const v = String(value);
   if (!isOpId(v)) {
     throw new HttpError(400, API_ERROR_CODES.INVALID_OP_ID, `${fieldPath} must be one of JL_PROPOSAL, JL_COMMIT, JL_REJECT`, { field: fieldPath, value });
-  }
-  return v;
-}
-
-function validateFlowStateLiteral(value: unknown, fieldPath: string): FlowState {
-  const v = String(value);
-  if (!isFlowState(v)) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_IN_STATE, `${fieldPath} must be one of NUL, PROPOSAL, COMMIT, UNRESOLVED, ABEND`, { field: fieldPath, value });
-  }
-  return v;
-}
-
-function validateTerminalStateLiteral(value: unknown, fieldPath: string): TerminalState {
-  const v = String(value);
-  if (!isTerminalState(v)) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_TERMINAL_STATE, `${fieldPath} must be one of PROPOSAL, COMMIT, UNRESOLVED, ABEND`, { field: fieldPath, value });
   }
   return v;
 }
@@ -197,8 +226,6 @@ function validateRequiredToResolve(contents: Record<string, unknown>): void {
   }
 }
 
-
-
 function validateProposalRefForTargetRequest(opId: OpId, contents: Record<string, unknown>): void {
   if (opId !== "JL_COMMIT" && opId !== "JL_REJECT") return;
   const ref = contents.proposal_ref;
@@ -246,26 +273,18 @@ function validateResponseCorrelation(contents: Record<string, unknown>): void {
   meta.echo_request_bus_id = echo.trim();
 }
 
-function validateNonCommitArtifactCompletionGate(state: TerminalState, contents: Record<string, unknown>): void {
-  if (state === "COMMIT") return;
+function validateNonCommitArtifactCompletionGate(terminal: ResponseTerminal, contents: Record<string, unknown>): void {
+  if (terminal === "COMMIT") return;
   if (contents.result != null) {
     throw new HttpError(400, API_ERROR_CODES.INVALID_ARTIFACT_COMPLETION, "Only COMMIT may carry message.contents.result or claim deterministic artifact completion", {
-      state,
+      terminal,
       field: "message.contents.result",
     });
   }
 }
 
-function validateRequestProfile(msgType: BusMessageType, opId: OpId, inState: FlowState, contents: Record<string, unknown>, toOwnerId: string, flowOwnerId: string): void {
+function validateRequestProfile(msgType: BusMessageType, opId: OpId, contents: Record<string, unknown>, toOwnerId: string, flowOwnerId: string): void {
   if (msgType !== MESSAGE_TYPES.REQUEST) return;
-
-  if (!isAllowedRequestInState(opId, inState)) {
-    throw new HttpError(400, API_ERROR_CODES.OP_ID_IN_STATE_MISMATCH, "REQUEST in_state is not allowed for op_id", {
-      op_id: opId,
-      in_state: inState,
-      allowed: opId === "JL_PROPOSAL" ? ["NUL"] : ["PROPOSAL"],
-    });
-  }
 
   if (toOwnerId !== flowOwnerId) {
     throw new HttpError(400, API_ERROR_CODES.ROUTING_FLOW_MISMATCH, "routing.to_owner_id must match message.flow.owner_id for REQUEST", {
@@ -287,25 +306,11 @@ function validateRequestProfile(msgType: BusMessageType, opId: OpId, inState: Fl
   validateProposalRefForTargetRequest(opId, contents);
 }
 
-function validateResponseProfile(opId: OpId, inState: FlowState, state: TerminalState, contents: Record<string, unknown>): void {
-  if (!isAllowedResponseTerminal(opId, inState, state)) {
-    const allowed = opId === "JL_PROPOSAL"
-      ? ["PROPOSAL", "UNRESOLVED", "ABEND"]
-      : opId === "JL_COMMIT"
-        ? ["COMMIT", "UNRESOLVED", "ABEND"]
-        : ["UNRESOLVED", "ABEND"];
-    throw new HttpError(400, API_ERROR_CODES.TERMINAL_NOT_ALLOWED, "RESPONSE terminal state is not allowed for op_id and in_state", {
-      op_id: opId,
-      in_state: inState,
-      state,
-      allowed,
-    });
-  }
-
+function validateResponseProfile(opId: OpId, terminal: ResponseTerminal, contents: Record<string, unknown>): void {
   validateResponseCorrelation(contents);
-  validateNonCommitArtifactCompletionGate(state, contents);
+  validateNonCommitArtifactCompletionGate(terminal, contents);
 
-  switch (state) {
+  switch (terminal) {
     case "PROPOSAL":
       if (!Array.isArray(contents.ops) || contents.ops.length === 0) {
         throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "PROPOSAL response must include non-empty message.contents.ops", {
@@ -357,6 +362,7 @@ export function normalizeBusTs(busTs: unknown): number {
 
 export function validateBusLoose(bus: any): {
   schema_id: string;
+  doc_id: string;
   bus_id: string;
   bus_ts: number;
   from_owner_id: string;
@@ -367,9 +373,6 @@ export function validateBusLoose(bus: any): {
   flow_owner_id: string;
   lane_id: string;
   request_id: string;
-  in_state: FlowState;
-  state: TerminalState | null;
-  out_state: TerminalState | null;
   bus_obj: any;
   bus_json: string;
 } {
@@ -379,6 +382,7 @@ export function validateBusLoose(bus: any): {
 
   requireFields(bus, [
     "schema_id",
+    "doc_id",
     "bus_id",
     "bus_ts",
     "routing.from_owner_id",
@@ -389,11 +393,11 @@ export function validateBusLoose(bus: any): {
     "message.flow.owner_id",
     "message.flow.lane_id",
     "message.request_id",
-    "message.in_state",
   ]);
 
   const schema_id = String(bus.schema_id);
   if (schema_id !== BUS_SCHEMA_ID) throw new HttpError(400, API_ERROR_CODES.INVALID_SCHEMA_ID, `schema_id must be ${BUS_SCHEMA_ID}`);
+  const doc_id = String(bus.doc_id);
 
   const bus_id = String(bus.bus_id);
   const bus_ts = normalizeBusTs(bus.bus_ts);
@@ -417,7 +421,6 @@ export function validateBusLoose(bus: any): {
   const flow_owner_id = validateOwnerId(String(bus.message.flow.owner_id), "message.flow.owner_id");
   const lane_id = validateLaneId(String(bus.message.flow.lane_id), "message.flow.lane_id");
   const request_id = String(bus.message.request_id);
-  const in_state = validateFlowStateLiteral(bus.message.in_state, "message.in_state");
 
   if ((bus.message as any).contents == null && (bus.message as any).payload != null) {
     (bus.message as any).contents = (bus.message as any).payload;
@@ -436,35 +439,19 @@ export function validateBusLoose(bus: any): {
   validateProfileSelection(contents, op_id);
   validateReasonCodeIfPresent(contents);
 
-  let state: TerminalState | null = null;
-  let out_state: TerminalState | null = null;
+  const responseTerminal = validateContractDocForMessage(doc_id, msg_type, op_id);
 
   if (msg_type === MESSAGE_TYPES.REQUEST) {
-    if (bus.message.state != null) delete bus.message.state;
-    if (bus.message.out_state != null) delete bus.message.out_state;
-    state = null;
-    out_state = null;
-    validateRequestProfile(msg_type, op_id, in_state, contents, to_owner_id, flow_owner_id);
+    validateRequestProfile(msg_type, op_id, contents, to_owner_id, flow_owner_id);
   } else {
-    requireFields(bus, ["message.state"]);
-    state = validateTerminalStateLiteral(bus.message.state, "message.state");
-    if (bus.message.out_state == null) {
-      bus.message.out_state = state;
-    }
-    out_state = validateTerminalStateLiteral(bus.message.out_state, "message.out_state");
-    if (out_state !== state) {
-      throw new HttpError(400, API_ERROR_CODES.OUT_STATE_MISMATCH, "message.out_state must equal message.state for RESPONSE", {
-        state,
-        out_state,
-      });
-    }
-    validateResponseProfile(op_id, in_state, state, contents);
+    validateResponseProfile(op_id, responseTerminal as ResponseTerminal, contents);
   }
 
   const bus_json = JSON.stringify(bus);
 
   return {
     schema_id,
+    doc_id,
     bus_id,
     bus_ts,
     from_owner_id,
@@ -475,9 +462,6 @@ export function validateBusLoose(bus: any): {
     flow_owner_id,
     lane_id,
     request_id,
-    in_state,
-    state,
-    out_state,
     bus_obj: bus,
     bus_json,
   };
