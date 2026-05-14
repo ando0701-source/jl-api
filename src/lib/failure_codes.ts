@@ -1,5 +1,5 @@
 // Phase1C failure_code literals.
-// Canonical metadata is persisted in bus_failure_code_catalog.
+// Runtime failure-code detection metadata is persisted in bus_failure_code_catalog and repair metadata is persisted in diag_findings_catalog.
 // Keep these literals aligned with 2013_seed_bus_failure_code_catalog_proposal_ref.sql
 // until vocab-driven generation is introduced.
 

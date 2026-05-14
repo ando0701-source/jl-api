@@ -293,10 +293,10 @@ const PHASE1C_SCALAR_CHECKS: ScalarCheck[] = [
   },
   {
     key: "phase1c.Q04_catalog_detail_missing_metadata_count.value",
-    sql: `SELECT COUNT(*) AS value FROM bus_failure_code_catalog WHERE COALESCE(TRIM(severity),'')='' OR COALESCE(TRIM(effective_recovery_profile),'')='' OR COALESCE(TRIM(primary_fix_doc_id),'')='' OR COALESCE(TRIM(primary_fix_rule_id),'')='' OR json_valid(required_detail_keys) <> 1`,
+    sql: `SELECT COUNT(*) AS value FROM (SELECT finding_code FROM bus_failure_code_catalog WHERE COALESCE(TRIM(finding_code),'')='' OR COALESCE(TRIM(severity),'')='' OR json_valid(required_detail_keys) <> 1 OR enabled NOT IN (0,1) UNION ALL SELECT finding_code FROM diag_findings_catalog WHERE COALESCE(TRIM(finding_code),'')='' OR COALESCE(TRIM(effective_recovery_profile),'')='' OR json_valid(required_detail_keys) <> 1 OR enabled NOT IN (0,1) UNION ALL SELECT finding_code FROM diag_checks_catalog WHERE COALESCE(TRIM(finding_code),'')='' OR COALESCE(TRIM(diag_key),'')='' OR COALESCE(TRIM(expected_value),'')='' OR COALESCE(TRIM(compare_op),'')='' OR enabled NOT IN (0,1))`,
     compare: "eq",
     expected: 0,
-    note: "Catalog rows must have repair routing metadata and valid required_detail_keys JSON.",
+    note: "Diagnostic catalog rows must have finding mappings and valid required_detail_keys JSON.",
   },
   {
     key: "phase1c.Q05_observed_failure_code_coverage_unresolved_count.value",
