@@ -36,3 +36,12 @@ INSERT OR IGNORE INTO bus_events_catalog(
   ('LANE_MISMATCH','ERROR','BUS_MESSAGE',NULL,'[]','["response_bus_id", "response_from_owner_id", "response_to_owner_id", "response_flow_owner_id", "response_lane_id", "response_request_id", "echo_request_bus_id", "request_bus_id", "request_bus_ts", "request_flow_owner_id", "request_lane_id", "request_id"]','RESPONSE lane_id does not match REQUEST lane_id referenced by echo_request_bus_id'),
   ('MISSING_ECHO_REQUEST_BUS_ID','ERROR','BUS_MESSAGE',NULL,'[]','["response_bus_id", "response_from_owner_id", "response_to_owner_id", "response_flow_owner_id", "response_lane_id", "response_request_id", "echo_request_bus_id", "request_bus_id", "request_bus_ts", "request_flow_owner_id", "request_lane_id", "request_id"]','RESPONSE is missing contentsmetaecho_request_bus_id'),
   ('REQUEST_ID_MISMATCH','ERROR','BUS_MESSAGE',NULL,'[]','["response_bus_id", "response_from_owner_id", "response_to_owner_id", "response_flow_owner_id", "response_lane_id", "response_request_id", "echo_request_bus_id", "request_bus_id", "request_bus_ts", "request_flow_owner_id", "request_lane_id", "request_id"]','RESPONSE request_id does not match REQUEST request_id referenced by echo_request_bus_id');
+
+UPDATE bus_events_catalog
+SET
+  finding_code = 'bus.response.echo_request_not_found',
+  recovery_profile = 'REPAIR_RESPONSE_ECHO_REQUEST_CORRELATION',
+  primary_fix_doc_id = '2PLT_40_PROTOCOL_FREEZE_PHASE0_ANNEX',
+  primary_fix_rule_id = 'PF_RULE_RESPONSE_ECHO_REQUEST_BUS_ID_REQUIRED'
+WHERE event_code = 'ECHO_REQUEST_NOT_FOUND';
+

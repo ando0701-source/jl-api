@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS bus_events_catalog (
   default_scope_kind TEXT NOT NULL CHECK (default_scope_kind IN ('BUS_MESSAGE','OWNER','LANE','QUEUE','GLOBAL')),
   recovery_profile TEXT,
   message_template TEXT NOT NULL,
+  finding_code TEXT,          -- Optional diag_findings_catalog finding_code for event-code-level self-repair routing
 
   -- Optional governance hooks (for self-repair / doc routing)
   detect_rule_id TEXT,
