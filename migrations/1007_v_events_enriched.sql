@@ -14,7 +14,11 @@ WITH event_base AS (
 SELECT
   e.event_id,
   e.event_code,
-  COALESCE(fdf.severity, edf.severity, 'UNKNOWN') AS severity,
+  CASE
+    WHEN e.failure_code IS NOT NULL THEN COALESCE(fdf.severity, edf.severity, 'UNKNOWN')
+    WHEN bc.event_code IS NOT NULL AND bc.finding_code IS NULL THEN 'INFO'
+    ELSE COALESCE(edf.severity, 'UNKNOWN')
+  END AS severity,
   CASE
     WHEN e.failure_code IS NOT NULL THEN COALESCE(fdf.finding_message_template, fc.description, 'UNREGISTERED_FAILURE_CODE:' || e.failure_code)
     ELSE COALESCE(edf.finding_message_template, bc.event_message_template, 'UNREGISTERED_EVENT_CODE:' || e.event_code)

@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS bus_findings_catalog (
   finding_message_template TEXT NOT NULL,
   primary_fix_doc_id TEXT,
   primary_fix_rule_id TEXT,
-  target_json_path TEXT,
+  target_json_path TEXT NOT NULL,
   effective_recovery_profile TEXT NOT NULL,
   required_detail_keys TEXT NOT NULL DEFAULT '[]',
   description TEXT NOT NULL,
