@@ -272,38 +272,38 @@ function phase1bCases(run_id: string, bus_ts: number): TriggerCase[] {
 const PHASE1C_SCALAR_CHECKS: ScalarCheck[] = [
   {
     key: "phase1c.Q01_catalog_count.value",
-    sql: "SELECT COUNT(*) AS value FROM bus_failure_code_catalog",
+    sql: "SELECT COUNT(*) AS value FROM bus_failure_catalog",
     compare: "gte",
     expected: 9,
-    note: "bus_failure_code_catalog row count must be at least 9.",
+    note: "bus_failure_catalog row count must be at least 9.",
   },
   {
     key: "phase1c.Q02_proposal_ref_catalog_count.value",
-    sql: `SELECT COUNT(*) AS value FROM bus_failure_code_catalog WHERE failure_code IN ('proposal_ref_not_found','proposal_ref_target_not_response','proposal_ref_target_op_mismatch','proposal_ref_target_terminal_mismatch','proposal_ref_flow_owner_mismatch','proposal_ref_lane_mismatch','proposal_ref_request_id_mismatch','proposal_ref_origin_request_invalid','proposal_ref_already_consumed')`,
+    sql: `SELECT COUNT(*) AS value FROM bus_failure_catalog WHERE failure_code IN ('proposal_ref_not_found','proposal_ref_target_not_response','proposal_ref_target_op_mismatch','proposal_ref_target_terminal_mismatch','proposal_ref_flow_owner_mismatch','proposal_ref_lane_mismatch','proposal_ref_request_id_mismatch','proposal_ref_origin_request_invalid','proposal_ref_already_consumed')`,
     compare: "eq",
     expected: 9,
     note: "proposal_ref failure_code catalog row count must be exactly 9.",
   },
   {
     key: "phase1c.Q03_unresolved_observed_failure_codes.value",
-    sql: `SELECT COUNT(*) AS value FROM (SELECT DISTINCT json_extract(data,'$.failure_code') AS failure_code FROM bus_events WHERE event_code='ENQUEUE_PRECHECK_REJECTED' AND COALESCE(json_extract(data,'$.failure_code'),'') <> '' AND json_extract(data,'$.failure_code') NOT IN (SELECT failure_code FROM bus_failure_code_catalog))`,
+    sql: `SELECT COUNT(*) AS value FROM (SELECT DISTINCT json_extract(data,'$.failure_code') AS failure_code FROM bus_events WHERE event_code='ENQUEUE_PRECHECK_REJECTED' AND COALESCE(json_extract(data,'$.failure_code'),'') <> '' AND json_extract(data,'$.failure_code') NOT IN (SELECT failure_code FROM bus_failure_catalog))`,
     compare: "eq",
     expected: 0,
     note: "Observed ENQUEUE_PRECHECK_REJECTED failure_code values must resolve to catalog rows.",
   },
   {
     key: "phase1c.Q04_catalog_detail_missing_metadata_count.value",
-    sql: `SELECT COUNT(*) AS value FROM (SELECT finding_code FROM bus_failure_code_catalog WHERE COALESCE(TRIM(finding_code),'')='' OR COALESCE(TRIM(severity),'')='' OR json_valid(required_detail_keys) <> 1 OR enabled NOT IN (0,1) UNION ALL SELECT finding_code FROM diag_findings_catalog WHERE COALESCE(TRIM(finding_code),'')='' OR COALESCE(TRIM(effective_recovery_profile),'')='' OR json_valid(required_detail_keys) <> 1 OR enabled NOT IN (0,1) UNION ALL SELECT finding_code FROM diag_checks_catalog WHERE COALESCE(TRIM(finding_code),'')='' OR COALESCE(TRIM(diag_key),'')='' OR COALESCE(TRIM(expected_value),'')='' OR COALESCE(TRIM(compare_op),'')='' OR enabled NOT IN (0,1))`,
+    sql: `SELECT COUNT(*) AS value FROM (SELECT finding_code FROM bus_failure_catalog WHERE COALESCE(TRIM(finding_code),'')='' OR enabled NOT IN (0,1) UNION ALL SELECT finding_code FROM bus_findings_catalog WHERE COALESCE(TRIM(finding_code),'')='' OR COALESCE(TRIM(finding_message_template),'')='' OR COALESCE(TRIM(effective_recovery_profile),'')='' OR json_valid(required_detail_keys) <> 1 OR enabled NOT IN (0,1) UNION ALL SELECT finding_code FROM bus_diag_catalog WHERE COALESCE(TRIM(finding_code),'')='' OR COALESCE(TRIM(diag_key),'')='' OR COALESCE(TRIM(expected_value),'')='' OR COALESCE(TRIM(compare_op),'')='' OR enabled NOT IN (0,1))`,
     compare: "eq",
     expected: 0,
     note: "Diagnostic catalog rows must have finding mappings and valid required_detail_keys JSON.",
   },
   {
     key: "phase1c.Q05_observed_failure_code_coverage_unresolved_count.value",
-    sql: "SELECT COUNT(*) AS value FROM v_failure_code_catalog_coverage WHERE catalog_resolved <> 1",
+    sql: "SELECT COUNT(*) AS value FROM v_bus_failure_catalog_coverage WHERE catalog_resolved <> 1",
     compare: "eq",
     expected: 0,
-    note: "v_failure_code_catalog_coverage must have no unresolved observed failure_code rows.",
+    note: "v_bus_failure_catalog_coverage must have no unresolved observed failure_code rows.",
   },
 ];
 
@@ -345,7 +345,7 @@ function compareScalar(value: number, compare: "eq" | "gte", expected: number): 
 
 async function storeResult(env: Env, result: DiagResult): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO diag_results(run_id,bus_id,diag_key,diag_value,status,note,created_at)
+    `INSERT INTO bus_diag(run_id,bus_id,diag_key,diag_value,status,note,created_at)
      VALUES(?,?,?,?,?,?,?)`
   ).bind(
     result.run_id,

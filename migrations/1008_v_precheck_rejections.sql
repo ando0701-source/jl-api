@@ -1,6 +1,6 @@
 -- 1008_v_precheck_rejections.sql
 -- Dedicated audit view for enqueue preflight rejections.
--- Resolves failure_code through bus_failure_code_catalog and diag_findings_catalog.
+-- Resolves failure_code through bus_failure_catalog and bus_findings_catalog.
 -- Target: Cloudflare D1 (SQLite)
 
 DROP VIEW IF EXISTS v_precheck_rejections;
@@ -32,20 +32,20 @@ SELECT
   json_extract(e.data, '$.details.consuming_request_bus_id') AS consuming_request_bus_id,
   json_extract(e.data, '$.details.consuming_request_op_id') AS consuming_request_op_id,
   json_extract(e.data, '$.details.consumption_stage') AS consumption_stage,
-  COALESCE(fc.severity, df.severity, 'UNKNOWN') AS failure_severity,
+  COALESCE(df.severity, 'UNKNOWN') AS failure_severity,
   COALESCE(df.effective_recovery_profile, 'INSPECT_PRECHECK_REJECTION') AS effective_recovery_profile,
   df.finding_domain AS finding_domain,
+  df.finding_message_template AS finding_message_template,
   df.primary_fix_doc_id AS primary_fix_doc_id,
   df.primary_fix_rule_id AS primary_fix_rule_id,
   df.target_json_path AS target_json_path,
-  COALESCE(df.required_detail_keys, fc.required_detail_keys) AS required_detail_keys,
-  fc.is_terminal AS is_terminal,
+  df.required_detail_keys AS required_detail_keys,
   COALESCE(fc.description, df.description) AS failure_description,
   CASE WHEN fc.failure_code IS NULL THEN 0 ELSE 1 END AS catalog_resolved,
   CASE WHEN df.finding_code IS NULL THEN 0 ELSE 1 END AS finding_resolved,
   e.data
 FROM precheck e
-LEFT JOIN bus_failure_code_catalog fc
+LEFT JOIN bus_failure_catalog fc
   ON fc.failure_code = e.failure_code
-LEFT JOIN diag_findings_catalog df
+LEFT JOIN bus_findings_catalog df
   ON df.finding_code = fc.finding_code;

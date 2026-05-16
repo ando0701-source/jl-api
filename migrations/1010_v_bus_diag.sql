@@ -1,9 +1,9 @@
--- 1010_v_diag_results.sql
+-- 1010_v_bus_diag.sql
 -- Diagnostic results view joining observed /diag rows with check and finding catalogs.
 -- Target: Cloudflare D1 (SQLite)
 
-DROP VIEW IF EXISTS v_diag_results;
-CREATE VIEW v_diag_results AS
+DROP VIEW IF EXISTS v_bus_diag;
+CREATE VIEW v_bus_diag AS
 SELECT
   r.run_id,
   r.bus_id,
@@ -16,12 +16,12 @@ SELECT
   df.finding_domain,
   c.expected_value,
   c.compare_op,
-  c.severity AS check_severity,
   df.severity AS finding_severity,
   c.source_kind,
   c.enabled AS check_enabled,
   df.enabled AS finding_enabled,
   c.description AS check_description,
+  df.finding_message_template AS finding_message_template,
   df.description AS finding_description,
   df.primary_fix_doc_id,
   df.primary_fix_rule_id,
@@ -61,6 +61,6 @@ SELECT
     ) THEN 1
     ELSE 0
   END AS status_match
-FROM diag_results r
-LEFT JOIN diag_checks_catalog c ON c.diag_key = r.diag_key
-LEFT JOIN diag_findings_catalog df ON df.finding_code = c.finding_code;
+FROM bus_diag r
+LEFT JOIN bus_diag_catalog c ON c.diag_key = r.diag_key
+LEFT JOIN bus_findings_catalog df ON df.finding_code = c.finding_code;

@@ -1,10 +1,12 @@
--- 0014_diag_results.sql
+-- 0014_bus_diag.sql
 -- Append-only diagnostic result accumulation table for /diag initial implementation.
 -- Phase1D-4: /diag key/value accumulation.
--- One object per migration file: diag_results + indexes.
+-- One object per migration file: bus_diag + indexes.
 -- Target: Cloudflare D1 (SQLite)
 
-CREATE TABLE IF NOT EXISTS diag_results (
+DROP TABLE IF EXISTS bus_diag;
+
+CREATE TABLE IF NOT EXISTS bus_diag (
   run_id TEXT NOT NULL,
   bus_id TEXT,
   diag_key TEXT NOT NULL,
@@ -15,6 +17,6 @@ CREATE TABLE IF NOT EXISTS diag_results (
   PRIMARY KEY (run_id, diag_key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_diag_results_run ON diag_results(run_id, created_at, diag_key);
-CREATE INDEX IF NOT EXISTS idx_diag_results_status ON diag_results(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_diag_results_bus ON diag_results(bus_id) WHERE bus_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_bus_diag_run ON bus_diag(run_id, created_at, diag_key);
+CREATE INDEX IF NOT EXISTS idx_bus_diag_status ON bus_diag(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_bus_diag_bus ON bus_diag(bus_id) WHERE bus_id IS NOT NULL;

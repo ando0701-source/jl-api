@@ -1,29 +1,19 @@
 -- 0012_bus_events_catalog.sql
--- Materialized catalog of event_code requirements and metadata.
+-- Materialized catalog of event_code metadata.
 -- Canonical definitions live in vocab.tsv under bus_events.event_code.<EVENT_CODE>.
 -- One object per migration file: bus_events_catalog + dedicated indexes.
 -- Target: Cloudflare D1 (SQLite)
 
+DROP TABLE IF EXISTS bus_events_catalog;
+
 CREATE TABLE IF NOT EXISTS bus_events_catalog (
   event_code TEXT PRIMARY KEY,
-  severity   TEXT NOT NULL CHECK (severity IN ('INFO','WARN','ERROR')),
-  default_scope_kind TEXT NOT NULL CHECK (default_scope_kind IN ('BUS_MESSAGE','OWNER','LANE','QUEUE','GLOBAL')),
-  recovery_profile TEXT,
-  message_template TEXT NOT NULL,
-  finding_code TEXT,          -- Optional diag_findings_catalog finding_code for event-code-level self-repair routing
-
-  -- Optional governance hooks (for self-repair / doc routing)
-  detect_rule_id TEXT,
-  verify_query_id TEXT,
-  primary_doc_id TEXT,
-  primary_fix_doc_id TEXT,
-  primary_fix_rule_id TEXT,
-
-  -- Optional machine aids
-  required_fields TEXT,        -- JSON array of required bus_events columns for this event (optional)
-  required_data_keys TEXT,     -- JSON array of required JSON key paths under bus_events.data
-  optional_data_keys TEXT,     -- JSON array of optional JSON key paths under bus_events.data
-  notes TEXT
+  finding_code TEXT,          -- Optional bus_findings_catalog finding_code for event-code-level self-repair routing
+  event_scope TEXT NOT NULL CHECK (event_scope IN ('BUS_MESSAGE','OWNER','LANE','QUEUE','GLOBAL')),
+  event_message_template TEXT NOT NULL,
+  description TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1))
 );
 
-CREATE INDEX IF NOT EXISTS idx_bus_events_catalog_sev ON bus_events_catalog(severity);
+CREATE INDEX IF NOT EXISTS idx_bus_events_catalog_finding ON bus_events_catalog(finding_code, enabled, event_code);
+CREATE INDEX IF NOT EXISTS idx_bus_events_catalog_scope ON bus_events_catalog(event_scope, enabled, event_code);
