@@ -399,10 +399,12 @@ function fillCurrentContentBlockSourceFields(contents: Record<string, unknown>, 
     if (!isPlainObject(rawBlock)) continue;
     const block = rawBlock as Record<string, unknown>;
     if (block.source_kind !== "CURRENT_MESSAGE") continue;
-    if (typeof block.source_bus_id !== "string" || block.source_bus_id.trim() === "") block.source_bus_id = busId;
-    if (typeof block.source_block_name !== "string" || block.source_block_name.trim() === "") block.source_block_name = blockName;
-    if (terminal && (typeof block.source_terminal !== "string" || block.source_terminal.trim() === "")) block.source_terminal = terminal;
-    if (typeof block.source_content_hash !== "string" || block.source_content_hash.trim() === "") block.source_content_hash = materializedSourceContentHash(String(block.source_bus_id), String(block.source_block_name));
+    // CURRENT_MESSAGE block source metadata is materialized by the current bus message itself.
+    // Fixture/static values are overwritten so DBMS correlation never depends on pre-mutation IDs.
+    block.source_bus_id = busId;
+    block.source_block_name = blockName;
+    if (terminal) block.source_terminal = terminal;
+    block.source_content_hash = materializedSourceContentHash(busId, blockName);
   }
 }
 
