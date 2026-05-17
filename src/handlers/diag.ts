@@ -88,7 +88,7 @@ function busJsonSql(obj: unknown): string {
 function insertBusSql(obj: any): string {
   const m = obj.message;
   return `INSERT INTO bus_messages(schema_id,bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,bus_json)
-VALUES('2PLT_BUS/v1',${sqlQuote(obj.bus_id)},${Number(obj.bus_ts)},'PENDING',${sqlQuote(obj.routing.from_owner_id)},${sqlQuote(obj.routing.to_owner_id)},NULL,NULL,NULL,'2PLT_MESSAGE/v1',${sqlQuote(m.msg_type)},${sqlQuote(m.op_id)},${sqlQuote(m.flow.owner_id)},${sqlQuote(m.flow.lane_id)},${sqlQuote(m.request_id)},${busJsonSql(obj)});`;
+VALUES('2PLT_BUS/v1',${sqlQuote(obj.bus_id)},${Number(obj.bus_ts)},'PENDING',${sqlQuote(obj.from_owner_id)},${sqlQuote(obj.to_owner_id)},NULL,NULL,NULL,'2PLT_MESSAGE/v1',${sqlQuote(m.msg_type)},${sqlQuote(m.op_id)},${sqlQuote(m.owner_id)},${sqlQuote(m.lane_id)},${sqlQuote(m.request_id)},${busJsonSql(obj)});`;
 }
 
 function requestEnvelope(

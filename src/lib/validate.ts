@@ -248,54 +248,58 @@ function requireContentBlock(contents: Record<string, unknown>, blockName: strin
 }
 
 function validateContentBlockFrame(blockName: string, block: Record<string, unknown>, expectedSourceKind?: string, expectedIoContractDocId?: string): void {
-  const source = block.source;
-  if (!isPlainObject(source)) {
-    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.source is required`, {
-      missing: [`message.contents.${blockName}.source`],
-    });
+  // Phase1E-2F-6X-2: content block metadata is held directly under the block.
+  // Legacy block.source is accepted only as an input shim and is flattened before storage.
+  const legacySource = block.source;
+  if (isPlainObject(legacySource)) {
+    for (const [k, v] of Object.entries(legacySource)) {
+      if (block[k] == null) block[k] = v;
+    }
+    delete block.source;
   }
-  const sourceKind = source.source_kind;
+
+  const sourceKind = block.source_kind;
   if (typeof sourceKind !== "string" || !CONTENT_BLOCK_SOURCE_KINDS.has(sourceKind)) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source.source_kind is invalid`, {
-      field: `message.contents.${blockName}.source.source_kind`,
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source_kind is invalid`, {
+      field: `message.contents.${blockName}.source_kind`,
       value: sourceKind,
     });
   }
   if (expectedSourceKind && sourceKind !== expectedSourceKind) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source.source_kind does not match the contract`, {
-      field: `message.contents.${blockName}.source.source_kind`,
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source_kind does not match the contract`, {
+      field: `message.contents.${blockName}.source_kind`,
       value: sourceKind,
       expected: expectedSourceKind,
     });
   }
-  const ioContractDocId = source.io_contract_doc_id;
+  const ioContractDocId = block.io_contract_doc_id;
   if (typeof ioContractDocId !== "string" || !IO_CONTRACT_DOC_IDS.has(ioContractDocId)) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source.io_contract_doc_id is invalid`, {
-      field: `message.contents.${blockName}.source.io_contract_doc_id`,
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.io_contract_doc_id is invalid`, {
+      field: `message.contents.${blockName}.io_contract_doc_id`,
       value: ioContractDocId,
     });
   }
   if (expectedIoContractDocId && ioContractDocId !== expectedIoContractDocId) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source.io_contract_doc_id does not match the contract`, {
-      field: `message.contents.${blockName}.source.io_contract_doc_id`,
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.io_contract_doc_id does not match the contract`, {
+      field: `message.contents.${blockName}.io_contract_doc_id`,
       value: ioContractDocId,
       expected: expectedIoContractDocId,
     });
   }
   if (sourceKind === "RECEIVED_BLOCK") {
-    const sourceBusId = source.source_bus_id;
-    const sourceBlockName = source.source_block_name;
-    const sourceContentHash = source.source_content_hash;
+    const sourceBusId = block.source_bus_id;
+    const sourceBlockName = block.source_block_name;
+    const sourceContentHash = block.source_content_hash;
     const missing: string[] = [];
-    if (typeof sourceBusId !== "string" || sourceBusId.trim() === "") missing.push(`message.contents.${blockName}.source.source_bus_id`);
-    if (typeof sourceBlockName !== "string" || sourceBlockName.trim() === "") missing.push(`message.contents.${blockName}.source.source_block_name`);
-    if (typeof sourceContentHash !== "string" || sourceContentHash.trim() === "") missing.push(`message.contents.${blockName}.source.source_content_hash`);
+    if (typeof sourceBusId !== "string" || sourceBusId.trim() === "") missing.push(`message.contents.${blockName}.source_bus_id`);
+    if (typeof sourceBlockName !== "string" || sourceBlockName.trim() === "") missing.push(`message.contents.${blockName}.source_block_name`);
+    if (typeof sourceContentHash !== "string" || sourceContentHash.trim() === "") missing.push(`message.contents.${blockName}.source_content_hash`);
     if (missing.length) {
-      throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.source is missing received-block source fields`, { missing });
+      throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName} is missing received-block source fields`, { missing });
     }
-    source.source_bus_id = String(sourceBusId).trim();
-    source.source_block_name = String(sourceBlockName).trim();
-    source.source_content_hash = String(sourceContentHash).trim();
+    block.source_bus_id = String(sourceBusId).trim();
+    block.source_block_name = String(sourceBlockName).trim();
+    block.source_content_hash = String(sourceContentHash).trim();
   }
   if (!isPlainObject(block.body)) {
     throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.body is required and must be an object`, {
@@ -326,13 +330,12 @@ function validateProposalBlockForTargetRequest(opId: OpId, contents: Record<stri
   if (opId !== "JL_COMMIT" && opId !== "JL_REJECT") return;
   requireContentBlock(contents, "make_proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
   const proposal = requireContentBlock(contents, "proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
-  const source = proposal.source as Record<string, unknown>;
-  const sourceTerminal = source.source_terminal;
-  if (source.source_block_name !== "proposal" || sourceTerminal !== "PROPOSAL") {
+  const sourceTerminal = proposal.source_terminal;
+  if (proposal.source_block_name !== "proposal" || sourceTerminal !== "PROPOSAL") {
     throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.proposal.source must target a PROPOSAL content block from a PROPOSAL response", {
       op_id: opId,
       expected: { source_block_name: "proposal", source_terminal: "PROPOSAL", io_contract_doc_id: "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL" },
-      actual: { source_block_name: source.source_block_name, source_terminal: sourceTerminal, io_contract_doc_id: source.io_contract_doc_id },
+      actual: { source_block_name: proposal.source_block_name, source_terminal: sourceTerminal, io_contract_doc_id: proposal.io_contract_doc_id },
     });
   }
   if (opId === "JL_COMMIT") {
@@ -380,9 +383,9 @@ function validateRequestProfile(msgType: BusMessageType, opId: OpId, contents: R
   if (msgType !== MESSAGE_TYPES.REQUEST) return;
 
   if (toOwnerId !== flowOwnerId) {
-    throw new HttpError(400, API_ERROR_CODES.ROUTING_FLOW_MISMATCH, "routing.to_owner_id must match message.flow.owner_id for REQUEST", {
+    throw new HttpError(400, API_ERROR_CODES.ROUTING_FLOW_MISMATCH, "to_owner_id must match message.owner_id for REQUEST", {
       to_owner_id: toOwnerId,
-      flow_owner_id: flowOwnerId,
+      message_owner_id: flowOwnerId,
     });
   }
 
@@ -469,18 +472,31 @@ export function validateBusLoose(bus: any): {
     throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "Body must be a JSON object");
   }
 
+  // Phase1E-2F-6X-2 canonical envelope: owner routing is top-level and
+  // lane ownership is directly under message. Legacy routing/flow are accepted
+  // as input shims and removed before storing bus_json.
+  if (isPlainObject(bus.routing)) {
+    if ((bus as any).from_owner_id == null) (bus as any).from_owner_id = (bus.routing as any).from_owner_id;
+    if ((bus as any).to_owner_id == null) (bus as any).to_owner_id = (bus.routing as any).to_owner_id;
+  }
+  if (isPlainObject((bus as any).message) && isPlainObject((bus as any).message.flow)) {
+    const msgAny = (bus as any).message;
+    if (msgAny.owner_id == null) msgAny.owner_id = msgAny.flow.owner_id;
+    if (msgAny.lane_id == null) msgAny.lane_id = msgAny.flow.lane_id;
+  }
+
   requireFields(bus, [
     "schema_id",
     "doc_id",
     "bus_id",
     "bus_ts",
-    "routing.from_owner_id",
-    "routing.to_owner_id",
+    "from_owner_id",
+    "to_owner_id",
     "message.schema_id",
     "message.msg_type",
     "message.op_id",
-    "message.flow.owner_id",
-    "message.flow.lane_id",
+    "message.owner_id",
+    "message.lane_id",
     "message.request_id",
   ]);
 
@@ -492,8 +508,11 @@ export function validateBusLoose(bus: any): {
   const bus_ts = normalizeBusTs(bus.bus_ts);
   (bus as any).bus_ts = bus_ts;
 
-  const from_owner_id = validateOwnerId(String(bus.routing.from_owner_id), "routing.from_owner_id");
-  const to_owner_id = validateOwnerId(String(bus.routing.to_owner_id), "routing.to_owner_id");
+  const from_owner_id = validateOwnerId(String((bus as any).from_owner_id), "from_owner_id");
+  const to_owner_id = validateOwnerId(String((bus as any).to_owner_id), "to_owner_id");
+  (bus as any).from_owner_id = from_owner_id;
+  (bus as any).to_owner_id = to_owner_id;
+  delete (bus as any).routing;
 
   const message_schema_id = String(bus.message.schema_id);
   if (message_schema_id !== MESSAGE_SCHEMA_ID) {
@@ -507,8 +526,12 @@ export function validateBusLoose(bus: any): {
   const msg_type = msg_type_raw as BusMessageType;
 
   const op_id = validateOpIdLiteral(bus.message.op_id, "message.op_id");
-  const flow_owner_id = validateOwnerId(String(bus.message.flow.owner_id), "message.flow.owner_id");
-  const lane_id = validateLaneId(String(bus.message.flow.lane_id), "message.flow.lane_id");
+  const flow_owner_id = validateOwnerId(String((bus.message as any).owner_id), "message.owner_id");
+  const lane_id = validateLaneId(String((bus.message as any).lane_id), "message.lane_id");
+  (bus.message as any).owner_id = flow_owner_id;
+  (bus.message as any).lane_id = lane_id;
+  delete (bus.message as any).flow;
+  delete (bus.message as any).io;
   const request_id = String(bus.message.request_id);
 
   if ((bus.message as any).contents == null && (bus.message as any).payload != null) {
@@ -519,17 +542,12 @@ export function validateBusLoose(bus: any): {
     throw new HttpError(400, API_ERROR_CODES.MISSING_CONTENTS, "message.contents is required (object)");
   }
 
-  validateIoMode((bus.message as any).io);
-
   const contents = (bus.message as any).contents as Record<string, unknown>;
   const makeProposalBlock = getContentBlock(contents, "make_proposal");
   if (makeProposalBlock && isPlainObject(makeProposalBlock.body)) {
     const body = makeProposalBlock.body as Record<string, unknown>;
     if (body.ops != null) body.ops = validateOpsArray(body.ops);
   }
-  validateProfileSelection(contents, op_id);
-  validateReasonCodeIfPresent(contents);
-
   const responseTerminal = validateContractDocForMessage(doc_id, msg_type, op_id);
 
   if (msg_type === MESSAGE_TYPES.REQUEST) {

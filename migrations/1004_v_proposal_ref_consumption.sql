@@ -9,7 +9,7 @@ DROP VIEW IF EXISTS v_proposal_ref_consumption;
 CREATE VIEW v_proposal_ref_consumption AS
 WITH consumers AS (
   SELECT
-    json_extract(r.bus_json, '$.message.contents.proposal.source.source_bus_id') AS proposal_ref_bus_id,
+    json_extract(r.bus_json, '$.message.contents.proposal.source_bus_id') AS proposal_ref_bus_id,
     r.bus_id AS consuming_request_bus_id,
     r.bus_ts AS consuming_request_bus_ts,
     r.op_id AS consuming_request_op_id,
@@ -17,16 +17,16 @@ WITH consumers AS (
     r.lane_id,
     r.request_id,
     ROW_NUMBER() OVER (
-      PARTITION BY json_extract(r.bus_json, '$.message.contents.proposal.source.source_bus_id')
+      PARTITION BY json_extract(r.bus_json, '$.message.contents.proposal.source_bus_id')
       ORDER BY r.bus_ts ASC, r.bus_id ASC
     ) AS rn,
     COUNT(*) OVER (
-      PARTITION BY json_extract(r.bus_json, '$.message.contents.proposal.source.source_bus_id')
+      PARTITION BY json_extract(r.bus_json, '$.message.contents.proposal.source_bus_id')
     ) AS consumer_count
   FROM bus_messages r
   WHERE r.msg_type = 'REQUEST'
     AND r.op_id IN ('JL_COMMIT', 'JL_REJECT')
-    AND json_extract(r.bus_json, '$.message.contents.proposal.source.source_bus_id') IS NOT NULL
+    AND json_extract(r.bus_json, '$.message.contents.proposal.source_bus_id') IS NOT NULL
 )
 SELECT
   c.proposal_ref_bus_id,

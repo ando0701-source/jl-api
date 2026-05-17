@@ -1,5 +1,5 @@
 -- 1004_v_proposal_ref_resolution.sql
--- Optional diagnostic view: resolve JL_COMMIT/JL_REJECT REQUEST.contents.proposal.source.source_bus_id
+-- Optional diagnostic view: resolve JL_COMMIT/JL_REJECT REQUEST.contents.proposal.source_bus_id
 -- to the target JL_PROPOSAL/PROPOSAL RESPONSE, echoed origin REQUEST, and Phase1B one-shot consumption status.
 -- One object per migration file: v_proposal_ref_resolution.
 -- Target: Cloudflare D1 (SQLite)
@@ -16,10 +16,10 @@ SELECT
   r.flow_owner_id AS request_flow_owner_id,
   r.lane_id AS request_lane_id,
   r.request_id AS request_request_id,
-  CAST(json_extract(r.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT) AS proposal_ref_bus_id,
-  CAST(json_extract(r.bus_json, '$.message.contents.proposal.source.io_contract_doc_id') AS TEXT) AS proposal_ref_source_op_id,
-  CAST(json_extract(r.bus_json, '$.message.contents.proposal.source.source_terminal') AS TEXT) AS proposal_ref_source_terminal,
-  CAST(json_extract(r.bus_json, '$.message.contents.proposal.source.source_block_name') AS TEXT) AS proposal_ref_resolution_mode,
+  CAST(json_extract(r.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT) AS proposal_ref_bus_id,
+  CAST(json_extract(r.bus_json, '$.message.contents.proposal.io_contract_doc_id') AS TEXT) AS proposal_ref_source_op_id,
+  CAST(json_extract(r.bus_json, '$.message.contents.proposal.source_terminal') AS TEXT) AS proposal_ref_source_terminal,
+  CAST(json_extract(r.bus_json, '$.message.contents.proposal.source_block_name') AS TEXT) AS proposal_ref_resolution_mode,
 
   p.bus_id AS target_bus_id,
   p.bus_ts AS target_bus_ts,
@@ -48,7 +48,7 @@ SELECT
   CASE WHEN c.bus_id IS NULL THEN NULL ELSE 'ACCEPTED_TARGET_REQUEST' END AS consumption_stage,
 
   CASE
-    WHEN COALESCE(TRIM(CAST(json_extract(r.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT)), '') = '' THEN 'PROPOSAL_REF_NOT_FOUND'
+    WHEN COALESCE(TRIM(CAST(json_extract(r.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT)), '') = '' THEN 'PROPOSAL_REF_NOT_FOUND'
     WHEN p.bus_id IS NULL THEN 'PROPOSAL_REF_NOT_FOUND'
     WHEN p.msg_type <> 'RESPONSE' THEN 'PROPOSAL_REF_TARGET_NOT_RESPONSE'
     WHEN p.op_id <> 'JL_PROPOSAL' THEN 'PROPOSAL_REF_TARGET_OP_MISMATCH'
@@ -70,7 +70,7 @@ SELECT
 
 FROM bus_messages r
 LEFT JOIN bus_messages p
-  ON p.bus_id = CAST(json_extract(r.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT)
+  ON p.bus_id = CAST(json_extract(r.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT)
 LEFT JOIN bus_messages q
   ON q.bus_id = CAST(json_extract(p.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)
 LEFT JOIN bus_messages c
@@ -80,7 +80,7 @@ LEFT JOIN bus_messages c
     WHERE prior_req.msg_type = 'REQUEST'
       AND prior_req.op_id IN ('JL_COMMIT','JL_REJECT')
       AND prior_req.bus_id <> r.bus_id
-      AND TRIM(CAST(json_extract(prior_req.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT)) = TRIM(CAST(json_extract(r.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
+      AND TRIM(CAST(json_extract(prior_req.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT)) = TRIM(CAST(json_extract(r.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
     ORDER BY prior_req.bus_ts ASC, prior_req.inserted_at ASC, prior_req.bus_id ASC
     LIMIT 1
   )
