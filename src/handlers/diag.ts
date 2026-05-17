@@ -109,12 +109,14 @@ function requestEnvelope(
     claimed_by: null,
     claimed_at: null,
     done_at: null,
-    routing: { from_owner_id: MANAGER, to_owner_id: owner },
+    from_owner_id: MANAGER,
+    to_owner_id: owner,
     message: {
       schema_id: "2PLT_MESSAGE/v1",
       msg_type: "REQUEST",
       op_id,
-      flow: { owner_id: owner, lane_id },
+      owner_id: owner,
+      lane_id,
       request_id,
       contents,
     },
@@ -122,14 +124,20 @@ function requestEnvelope(
 }
 
 
-function currentBlock(io_contract_doc_id: string, body: Record<string, unknown> = {}): Record<string, unknown> {
-  return { source: { source_kind: "CURRENT_MESSAGE", io_contract_doc_id }, body, attached: [] };
+function materializedSourceHash(source_bus_id: string, source_block_name: string): string {
+  return `DIAG_SOURCE_HASH:${source_bus_id}:${source_block_name}`;
+}
+
+function currentBlock(io_contract_doc_id: string, source_bus_id: string, source_block_name: string, body: Record<string, unknown> = {}, source_terminal?: string): Record<string, unknown> {
+  const block: Record<string, unknown> = { source_kind: "CURRENT_MESSAGE", io_contract_doc_id, source_bus_id, source_block_name, source_content_hash: materializedSourceHash(source_bus_id, source_block_name), body, attachment: [] };
+  if (source_terminal) block.source_terminal = source_terminal;
+  return block;
 }
 
 function receivedBlock(io_contract_doc_id: string, source_bus_id: string, source_block_name: string, body: Record<string, unknown> = {}, source_terminal?: string): Record<string, unknown> {
-  const source: Record<string, unknown> = { source_kind: "RECEIVED_BLOCK", io_contract_doc_id, source_bus_id, source_block_name, source_content_hash: "diag_materialized_source_hash" };
-  if (source_terminal) source.source_terminal = source_terminal;
-  return { source, body, attached: [] };
+  const block: Record<string, unknown> = { source_kind: "RECEIVED_BLOCK", io_contract_doc_id, source_bus_id, source_block_name, source_content_hash: materializedSourceHash(source_bus_id, source_block_name), body, attachment: [] };
+  if (source_terminal) block.source_terminal = source_terminal;
+  return block;
 }
 
 function makeProposalBody(task: string): Record<string, unknown> {
@@ -146,7 +154,7 @@ function makeProposalBody(task: string): Record<string, unknown> {
 
 function proposalRequest(bus_id: string, owner: string, lane_id: string, request_id: string, bus_ts: number): any {
   return requestEnvelope(bus_id, "JL_PROPOSAL", owner, lane_id, request_id, {
-    make_proposal: currentBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", makeProposalBody("HTTP /diag trigger smoke setup")),
+    make_proposal: currentBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", bus_id, "make_proposal", makeProposalBody("HTTP /diag trigger smoke setup")),
   }, bus_ts);
 }
 
@@ -164,11 +172,11 @@ function proposalResponse(
     make_proposal: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", echo_request_bus_id, "make_proposal"),
   };
   if (terminal === "PROPOSAL") {
-    contents.proposal = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", { ops: [{ kind: "fs.write", path: "scratch/diag/proposal.txt", content: "diag trigger setup" }] });
+    contents.proposal = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", bus_id, "proposal", { ops: [{ kind: "fs.write", path: "scratch/diag/proposal.txt", content: "diag trigger setup" }] }, "PROPOSAL");
   } else if (terminal === "UNRESOLVED") {
-    contents.unresolved = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL", { required_to_resolve: [{ field: "diag", reason: "trigger_probe" }] });
+    contents.unresolved = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL", bus_id, "unresolved", { required_to_resolve: [{ field: "diag", reason: "trigger_probe" }] }, "UNRESOLVED");
   } else {
-    contents.abend = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL", { reason_code: "PROTOCOL_VIOLATION" });
+    contents.abend = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL", bus_id, "abend", { reason_code: "PROTOCOL_VIOLATION" }, "ABEND");
   }
   return {
     schema_id: "2PLT_BUS/v1",
@@ -179,12 +187,14 @@ function proposalResponse(
     claimed_by: null,
     claimed_at: null,
     done_at: null,
-    routing: { from_owner_id: owner, to_owner_id: MANAGER },
+    from_owner_id: owner,
+    to_owner_id: MANAGER,
     message: {
       schema_id: "2PLT_MESSAGE/v1",
       msg_type: "RESPONSE",
       op_id: "JL_PROPOSAL",
-      flow: { owner_id: owner, lane_id },
+      owner_id: owner,
+      lane_id,
       request_id,
       contents,
     },
@@ -205,7 +215,7 @@ function targetRequest(
   return requestEnvelope(bus_id, op_id, owner, lane_id, request_id, {
     make_proposal: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", `ORIGIN_${proposalSourceBusId}`, "make_proposal"),
     proposal: receivedBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", proposalSourceBusId, "proposal", {}, "PROPOSAL"),
-    [targetBlock]: currentBlock(currentDoc, { target_block_name: "proposal", task_brief: "HTTP /diag trigger smoke target" }),
+    [targetBlock]: currentBlock(currentDoc, bus_id, targetBlock, { target_block_name: "proposal", task_brief: "HTTP /diag trigger smoke target" }),
   }, bus_ts);
 }
 

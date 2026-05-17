@@ -258,6 +258,11 @@ function validateContentBlockFrame(blockName: string, block: Record<string, unkn
     delete block.source;
   }
 
+  if (block.attachment == null && Array.isArray((block as any).attached)) {
+    block.attachment = (block as any).attached;
+  }
+  delete (block as any).attached;
+
   const sourceKind = block.source_kind;
   if (typeof sourceKind !== "string" || !CONTENT_BLOCK_SOURCE_KINDS.has(sourceKind)) {
     throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source_kind is invalid`, {
@@ -306,9 +311,9 @@ function validateContentBlockFrame(blockName: string, block: Record<string, unkn
       missing: [`message.contents.${blockName}.body`],
     });
   }
-  if (!Array.isArray(block.attached)) {
-    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.attached is required and must be an array`, {
-      missing: [`message.contents.${blockName}.attached`],
+  if (!Array.isArray(block.attachment)) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.attachment is required and must be an array`, {
+      missing: [`message.contents.${blockName}.attachment`],
     });
   }
 }
@@ -376,6 +381,22 @@ function validateNonCommitArtifactCompletionGate(terminal: ResponseTerminal, con
       terminal,
       field: contents.commit != null ? "message.contents.commit" : "message.contents.result",
     });
+  }
+}
+
+function materializedSourceContentHash(busId: string, blockName: string): string {
+  return `MATERIALIZED_SOURCE_HASH:${busId}:${blockName}`;
+}
+
+function fillCurrentContentBlockSourceFields(contents: Record<string, unknown>, busId: string, terminal: ResponseTerminal | null): void {
+  for (const [blockName, rawBlock] of Object.entries(contents)) {
+    if (!isPlainObject(rawBlock)) continue;
+    const block = rawBlock as Record<string, unknown>;
+    if (block.source_kind !== "CURRENT_MESSAGE") continue;
+    if (typeof block.source_bus_id !== "string" || block.source_bus_id.trim() === "") block.source_bus_id = busId;
+    if (typeof block.source_block_name !== "string" || block.source_block_name.trim() === "") block.source_block_name = blockName;
+    if (terminal && (typeof block.source_terminal !== "string" || block.source_terminal.trim() === "")) block.source_terminal = terminal;
+    if (typeof block.source_content_hash !== "string" || block.source_content_hash.trim() === "") block.source_content_hash = materializedSourceContentHash(String(block.source_bus_id), String(block.source_block_name));
   }
 }
 
@@ -549,6 +570,7 @@ export function validateBusLoose(bus: any): {
     if (body.ops != null) body.ops = validateOpsArray(body.ops);
   }
   const responseTerminal = validateContractDocForMessage(doc_id, msg_type, op_id);
+  fillCurrentContentBlockSourceFields(contents, bus_id, responseTerminal);
 
   if (msg_type === MESSAGE_TYPES.REQUEST) {
     validateRequestProfile(msg_type, op_id, contents, to_owner_id, flow_owner_id);
