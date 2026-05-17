@@ -20,13 +20,13 @@ import {
 
 type ResponseTerminal = "PROPOSAL" | "COMMIT" | "UNRESOLVED" | "ABEND";
 
-const REQUEST_DOC_BY_OP_ID: Record<OpId, string> = {
+const REQUEST_DOC_BY_OP_ID: Record<"JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT", string> = {
   JL_PROPOSAL: "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL",
   JL_COMMIT: "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT",
   JL_REJECT: "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT",
 };
 
-const RESPONSE_DOCS_BY_OP_ID: Record<OpId, string[]> = {
+const RESPONSE_DOCS_BY_OP_ID: Record<"JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT", string[]> = {
   JL_PROPOSAL: [
     "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL",
     "2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL",
@@ -57,7 +57,38 @@ const IO_CONTRACT_DOC_IDS = new Set<string>([
   "2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_REJECT",
 ]);
 
-const CONTENT_BLOCK_SOURCE_KINDS = new Set(["CURRENT_MESSAGE", "RECEIVED_BLOCK", "DERIVED_BLOCK", "SYSTEM_INJECTED"]);
+const CONTENT_BLOCK_MSG_TYPES = new Set(["REQUEST", "RESPONSE"]);
+const CONTENT_BLOCK_OP_IDS = new Set(["JL_PROPOSAL", "JL_COMMIT", "JL_REJECT", "PROPOSAL", "COMMIT", "UNRESOLVED", "ABEND"]);
+const CONTENT_BLOCK_IDENTITY: Record<string, { msg_type: string; op_id: string }> = {
+  JL_PROPOSAL: { msg_type: "REQUEST", op_id: "JL_PROPOSAL" },
+  PROPOSAL: { msg_type: "RESPONSE", op_id: "PROPOSAL" },
+  JL_COMMIT: { msg_type: "REQUEST", op_id: "JL_COMMIT" },
+  JL_REJECT: { msg_type: "REQUEST", op_id: "JL_REJECT" },
+  COMMIT: { msg_type: "RESPONSE", op_id: "COMMIT" },
+  UNRESOLVED: { msg_type: "RESPONSE", op_id: "UNRESOLVED" },
+  ABEND: { msg_type: "RESPONSE", op_id: "ABEND" },
+};
+
+const CONTENT_BLOCK_SEQUENCE_BY_CURRENT: Record<string, string[]> = {
+  JL_PROPOSAL: ["JL_PROPOSAL"],
+  PROPOSAL: ["JL_PROPOSAL", "PROPOSAL"],
+  JL_COMMIT: ["JL_PROPOSAL", "PROPOSAL", "JL_COMMIT"],
+  JL_REJECT: ["JL_PROPOSAL", "PROPOSAL", "JL_REJECT"],
+  COMMIT: ["JL_PROPOSAL", "PROPOSAL", "JL_COMMIT", "COMMIT"],
+};
+
+function expectedContentBlockSequence(msgType: BusMessageType, opId: OpId, terminal: ResponseTerminal | null): string[] {
+  if (msgType === MESSAGE_TYPES.REQUEST) return CONTENT_BLOCK_SEQUENCE_BY_CURRENT[opId] ?? [opId];
+  if (terminal === "PROPOSAL") return ["JL_PROPOSAL", "PROPOSAL"];
+  if (terminal === "COMMIT") return ["JL_PROPOSAL", "PROPOSAL", "JL_COMMIT", "COMMIT"];
+  if (terminal === "UNRESOLVED") return opId === "JL_PROPOSAL" ? ["JL_PROPOSAL", "UNRESOLVED"] : ["JL_PROPOSAL", "PROPOSAL", opId, "UNRESOLVED"];
+  if (terminal === "ABEND") return opId === "JL_PROPOSAL" ? ["JL_PROPOSAL", "ABEND"] : ["JL_PROPOSAL", "PROPOSAL", opId, "ABEND"];
+  return [opId];
+}
+
+function msgTypeForOpId(opId: OpId): BusMessageType {
+  return (opId === "JL_PROPOSAL" || opId === "JL_COMMIT" || opId === "JL_REJECT") ? MESSAGE_TYPES.REQUEST : MESSAGE_TYPES.RESPONSE;
+}
 
 function responseTerminalForDocId(docId: string): ResponseTerminal | null {
   if (docId === "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL") return "PROPOSAL";
@@ -67,8 +98,20 @@ function responseTerminalForDocId(docId: string): ResponseTerminal | null {
   return null;
 }
 
+function responseRequestOpIdForDocId(docId: string): "JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT" | null {
+  if (docId === "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL") return "JL_PROPOSAL";
+  if (docId === "2PLT_60_IO_CONTRACT_RESPONDER_COMMIT") return "JL_COMMIT";
+  if (docId.endsWith("_FROM_JL_PROPOSAL")) return "JL_PROPOSAL";
+  if (docId.endsWith("_FROM_JL_COMMIT")) return "JL_COMMIT";
+  if (docId.endsWith("_FROM_JL_REJECT")) return "JL_REJECT";
+  return null;
+}
+
 function validateContractDocForMessage(docId: string, msgType: BusMessageType, opId: OpId): ResponseTerminal | null {
   if (msgType === MESSAGE_TYPES.REQUEST) {
+    if (opId !== "JL_PROPOSAL" && opId !== "JL_COMMIT" && opId !== "JL_REJECT") {
+      throw new HttpError(400, API_ERROR_CODES.INVALID_OP_ID, "REQUEST message.op_id must be a requester op_id", { doc_id: docId, op_id: opId });
+    }
     const expected = REQUEST_DOC_BY_OP_ID[opId];
     if (docId !== expected) {
       throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "doc_id does not match request op_id", { doc_id: docId, op_id: opId, expected_doc_id: expected });
@@ -76,13 +119,15 @@ function validateContractDocForMessage(docId: string, msgType: BusMessageType, o
     return null;
   }
 
-  const allowed = RESPONSE_DOCS_BY_OP_ID[opId];
-  if (!allowed.includes(docId)) {
-    throw new HttpError(400, API_ERROR_CODES.TERMINAL_NOT_ALLOWED, "doc_id does not match response op_id", { doc_id: docId, op_id: opId, allowed_doc_ids: allowed });
-  }
   const terminal = responseTerminalForDocId(docId);
   if (!terminal) {
     throw new HttpError(400, API_ERROR_CODES.TERMINAL_NOT_ALLOWED, "response doc_id does not resolve to a response terminal", { doc_id: docId, op_id: opId });
+  }
+  if (opId !== terminal) {
+    throw new HttpError(400, API_ERROR_CODES.TERMINAL_NOT_ALLOWED, "RESPONSE message.op_id must match response terminal / message.sequence[-1]", { doc_id: docId, op_id: opId, expected_op_id: terminal });
+  }
+  if (!responseRequestOpIdForDocId(docId)) {
+    throw new HttpError(400, API_ERROR_CODES.TERMINAL_NOT_ALLOWED, "response doc_id does not resolve to a source request op_id", { doc_id: docId, op_id: opId });
   }
   return terminal;
 }
@@ -178,7 +223,7 @@ function validateLaneId(value: string, fieldPath: string): string {
 function validateOpIdLiteral(value: unknown, fieldPath: string): OpId {
   const v = String(value);
   if (!isOpId(v)) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_OP_ID, `${fieldPath} must be one of JL_PROPOSAL, JL_COMMIT, JL_REJECT`, { field: fieldPath, value });
+    throw new HttpError(400, API_ERROR_CODES.INVALID_OP_ID, `${fieldPath} must be a canonical Layer 60 op_id`, { field: fieldPath, value });
   }
   return v;
 }
@@ -236,18 +281,18 @@ function getContentBlock(contents: Record<string, unknown>, blockName: string): 
   return isPlainObject(block) ? block : null;
 }
 
-function requireContentBlock(contents: Record<string, unknown>, blockName: string, expectedSourceKind?: string, expectedIoContractDocId?: string): Record<string, unknown> {
+function requireContentBlock(contents: Record<string, unknown>, blockName: string, expectedIoContractDocId?: string): Record<string, unknown> {
   const block = getContentBlock(contents, blockName);
   if (!block) {
     throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName} block is required`, {
       missing: [`message.contents.${blockName}`],
     });
   }
-  validateContentBlockFrame(blockName, block, expectedSourceKind, expectedIoContractDocId);
+  validateContentBlockFrame(blockName, block, expectedIoContractDocId);
   return block;
 }
 
-function validateContentBlockFrame(blockName: string, block: Record<string, unknown>, expectedSourceKind?: string, expectedIoContractDocId?: string): void {
+function validateContentBlockFrame(blockName: string, block: Record<string, unknown>, expectedIoContractDocId?: string): void {
   // Phase1E-2F-6X-2: content block metadata is held directly under the block.
   // Legacy block.source is accepted only as an input shim and is flattened before storage.
   const legacySource = block.source;
@@ -263,49 +308,70 @@ function validateContentBlockFrame(blockName: string, block: Record<string, unkn
   }
   delete (block as any).attached;
 
-  const sourceKind = block.source_kind;
-  if (typeof sourceKind !== "string" || !CONTENT_BLOCK_SOURCE_KINDS.has(sourceKind)) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source_kind is invalid`, {
-      field: `message.contents.${blockName}.source_kind`,
-      value: sourceKind,
+  if (block.bus_id == null && typeof (block as any).source_bus_id === "string") block.bus_id = (block as any).source_bus_id;
+  if (block.content_hash == null && typeof (block as any).source_content_hash === "string") block.content_hash = (block as any).source_content_hash;
+  delete (block as any).source_bus_id;
+  delete (block as any).source_content_hash;
+  delete (block as any).source_kind;
+  delete (block as any).source_block_name;
+  delete (block as any).source_terminal;
+
+  const expectedIdentity = CONTENT_BLOCK_IDENTITY[blockName];
+  if (expectedIdentity && block.msg_type == null) block.msg_type = expectedIdentity.msg_type;
+  if (expectedIdentity && block.op_id == null) block.op_id = expectedIdentity.op_id;
+  const blockMsgType = block.msg_type;
+  if (typeof blockMsgType !== "string" || !CONTENT_BLOCK_MSG_TYPES.has(blockMsgType)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.msg_type is invalid`, {
+      field: `message.contents.${blockName}.msg_type`,
+      value: blockMsgType,
     });
   }
-  if (expectedSourceKind && sourceKind !== expectedSourceKind) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source_kind does not match the contract`, {
-      field: `message.contents.${blockName}.source_kind`,
-      value: sourceKind,
-      expected: expectedSourceKind,
+  if (expectedIdentity && blockMsgType !== expectedIdentity.msg_type) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.msg_type does not match the block`, {
+      field: `message.contents.${blockName}.msg_type`,
+      value: blockMsgType,
+      expected: expectedIdentity.msg_type,
     });
   }
-  const ioContractDocId = block.io_contract_doc_id;
-  if (typeof ioContractDocId !== "string" || !IO_CONTRACT_DOC_IDS.has(ioContractDocId)) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.io_contract_doc_id is invalid`, {
-      field: `message.contents.${blockName}.io_contract_doc_id`,
-      value: ioContractDocId,
+  const blockOpId = block.op_id;
+  if (typeof blockOpId !== "string" || !CONTENT_BLOCK_OP_IDS.has(blockOpId)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.op_id is invalid`, {
+      field: `message.contents.${blockName}.op_id`,
+      value: blockOpId,
     });
   }
-  if (expectedIoContractDocId && ioContractDocId !== expectedIoContractDocId) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.io_contract_doc_id does not match the contract`, {
-      field: `message.contents.${blockName}.io_contract_doc_id`,
-      value: ioContractDocId,
+  if (expectedIdentity && blockOpId !== expectedIdentity.op_id) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.op_id does not match the block`, {
+      field: `message.contents.${blockName}.op_id`,
+      value: blockOpId,
+      expected: expectedIdentity.op_id,
+    });
+  }
+
+  const blockDocId = block.doc_id;
+  if (typeof blockDocId !== "string" || !IO_CONTRACT_DOC_IDS.has(blockDocId)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.doc_id is invalid`, {
+      field: `message.contents.${blockName}.doc_id`,
+      value: blockDocId,
+    });
+  }
+  if (expectedIoContractDocId && blockDocId !== expectedIoContractDocId) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.doc_id does not match the contract`, {
+      field: `message.contents.${blockName}.doc_id`,
+      value: blockDocId,
       expected: expectedIoContractDocId,
     });
   }
-  if (sourceKind === "RECEIVED_BLOCK") {
-    const sourceBusId = block.source_bus_id;
-    const sourceBlockName = block.source_block_name;
-    const sourceContentHash = block.source_content_hash;
-    const missing: string[] = [];
-    if (typeof sourceBusId !== "string" || sourceBusId.trim() === "") missing.push(`message.contents.${blockName}.source_bus_id`);
-    if (typeof sourceBlockName !== "string" || sourceBlockName.trim() === "") missing.push(`message.contents.${blockName}.source_block_name`);
-    if (typeof sourceContentHash !== "string" || sourceContentHash.trim() === "") missing.push(`message.contents.${blockName}.source_content_hash`);
-    if (missing.length) {
-      throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName} is missing received-block source fields`, { missing });
-    }
-    block.source_bus_id = String(sourceBusId).trim();
-    block.source_block_name = String(sourceBlockName).trim();
-    block.source_content_hash = String(sourceContentHash).trim();
+  const blockBusId = block.bus_id;
+  const blockContentHash = block.content_hash;
+  const missing: string[] = [];
+  if (typeof blockBusId !== "string" || blockBusId.trim() === "") missing.push(`message.contents.${blockName}.bus_id`);
+  if (typeof blockContentHash !== "string" || blockContentHash.trim() === "") missing.push(`message.contents.${blockName}.content_hash`);
+  if (missing.length) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName} is missing block origin fields`, { missing });
   }
+  block.bus_id = String(blockBusId).trim();
+  block.content_hash = String(blockContentHash).trim();
   if (!isPlainObject(block.body)) {
     throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.body is required and must be an object`, {
       missing: [`message.contents.${blockName}.body`],
@@ -319,74 +385,98 @@ function validateContentBlockFrame(blockName: string, block: Record<string, unkn
 }
 
 function validateRequiredToResolveBlock(contents: Record<string, unknown>): void {
-  const unresolved = requireContentBlock(contents, "unresolved", "CURRENT_MESSAGE");
+  const unresolved = requireContentBlock(contents, "UNRESOLVED");
   const body = unresolved.body as Record<string, unknown>;
   if (!Array.isArray(body.required_to_resolve) || body.required_to_resolve.length === 0) {
-    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "UNRESOLVED response must include non-empty message.contents.unresolved.body.required_to_resolve", {
-      missing: ["message.contents.unresolved.body.required_to_resolve"],
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "UNRESOLVED response must include non-empty message.contents.UNRESOLVED.body.required_to_resolve", {
+      missing: ["message.contents.UNRESOLVED.body.required_to_resolve"],
     });
   }
   if (body.required_to_resolve.some((item) => !isPlainObject(item))) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "message.contents.unresolved.body.required_to_resolve must be an array of objects");
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "message.contents.UNRESOLVED.body.required_to_resolve must be an array of objects");
   }
 }
 
 function validateProposalBlockForTargetRequest(opId: OpId, contents: Record<string, unknown>): void {
   if (opId !== "JL_COMMIT" && opId !== "JL_REJECT") return;
-  requireContentBlock(contents, "make_proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
-  const proposal = requireContentBlock(contents, "proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
-  const sourceTerminal = proposal.source_terminal;
-  if (proposal.source_block_name !== "proposal" || sourceTerminal !== "PROPOSAL") {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.proposal.source must target a PROPOSAL content block from a PROPOSAL response", {
+  requireContentBlock(contents, "JL_PROPOSAL", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
+  const proposal = requireContentBlock(contents, "PROPOSAL", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
+  if (proposal.msg_type !== "RESPONSE" || proposal.op_id !== "PROPOSAL") {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.PROPOSAL must identify a PROPOSAL response content block", {
       op_id: opId,
-      expected: { source_block_name: "proposal", source_terminal: "PROPOSAL", io_contract_doc_id: "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL" },
-      actual: { source_block_name: proposal.source_block_name, source_terminal: sourceTerminal, io_contract_doc_id: proposal.io_contract_doc_id },
+      expected: { msg_type: "RESPONSE", op_id: "PROPOSAL", doc_id: "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL" },
+      actual: { msg_type: proposal.msg_type, op_id: proposal.op_id, doc_id: proposal.doc_id },
     });
   }
   if (opId === "JL_COMMIT") {
-    const commitRequest = requireContentBlock(contents, "commit_request", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT");
-    const body = commitRequest.body as Record<string, unknown>;
-    if (body.target_block_name !== "proposal") {
-      throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.commit_request.body.target_block_name must be proposal", { op_id: opId, target_block_name: body.target_block_name });
-    }
+    requireContentBlock(contents, "JL_COMMIT", "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT");
   } else {
-    const rejectRequest = requireContentBlock(contents, "reject_request", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT");
-    const body = rejectRequest.body as Record<string, unknown>;
-    if (body.target_block_name !== "proposal") {
-      throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.reject_request.body.target_block_name must be proposal", { op_id: opId, target_block_name: body.target_block_name });
-    }
+    requireContentBlock(contents, "JL_REJECT", "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT");
   }
 }
 
-function responseRequestBlockNameForOpId(opId: OpId): "make_proposal" | "commit_request" | "reject_request" {
-  if (opId === "JL_COMMIT") return "commit_request";
-  if (opId === "JL_REJECT") return "reject_request";
-  return "make_proposal";
+function responseRequestBlockNameForOpId(opId: "JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT"): "JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT" {
+  return opId;
 }
 
-function responseRequestContractDocIdForOpId(opId: OpId): string {
+function responseRequestContractDocIdForOpId(opId: "JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT"): string {
   return REQUEST_DOC_BY_OP_ID[opId];
 }
 
-function validateResponseCorrelation(opId: OpId, contents: Record<string, unknown>): void {
-  const blockName = responseRequestBlockNameForOpId(opId);
-  const requestBlock = requireContentBlock(contents, blockName, "RECEIVED_BLOCK", responseRequestContractDocIdForOpId(opId));
-  const sourceBusId = requestBlock.source_bus_id;
+function validateResponseCorrelation(sourceRequestOpId: "JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT", contents: Record<string, unknown>): void {
+  const blockName = responseRequestBlockNameForOpId(sourceRequestOpId);
+  const requestBlock = requireContentBlock(contents, blockName, responseRequestContractDocIdForOpId(sourceRequestOpId));
+  const sourceBusId = requestBlock.bus_id;
   if (typeof sourceBusId !== "string" || sourceBusId.trim() === "") {
-    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `RESPONSE must include non-empty message.contents.${blockName}.source_bus_id`, {
-      missing: [`message.contents.${blockName}.source_bus_id`],
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `RESPONSE must include non-empty message.contents.${blockName}.bus_id`, {
+      missing: [`message.contents.${blockName}.bus_id`],
     });
   }
-  requestBlock.source_bus_id = sourceBusId.trim();
+  requestBlock.bus_id = sourceBusId.trim();
 }
 
 function validateNonCommitArtifactCompletionGate(terminal: ResponseTerminal, contents: Record<string, unknown>): void {
   if (terminal === "COMMIT") return;
-  if (contents.commit != null || contents.result != null) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_ARTIFACT_COMPLETION, "Only COMMIT may carry message.contents.commit or legacy message.contents.result", {
+  if (contents.COMMIT != null || contents.result != null) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_ARTIFACT_COMPLETION, "Only COMMIT may carry message.contents.COMMIT or legacy message.contents.result", {
       terminal,
-      field: contents.commit != null ? "message.contents.commit" : "message.contents.result",
+      field: contents.COMMIT != null ? "message.contents.COMMIT" : "message.contents.result",
     });
+  }
+}
+
+function validateResponseProfile(sourceRequestOpId: "JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT", terminal: ResponseTerminal, contents: Record<string, unknown>): void {
+  validateResponseCorrelation(sourceRequestOpId, contents);
+  validateNonCommitArtifactCompletionGate(terminal, contents);
+
+  switch (terminal) {
+    case "PROPOSAL": {
+      requireContentBlock(contents, "JL_PROPOSAL", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
+      const proposal = requireContentBlock(contents, "PROPOSAL", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
+      const body = proposal.body as Record<string, unknown>;
+      if (body.ops != null) body.ops = validateOpsArray(body.ops);
+      break;
+    }
+    case "COMMIT":
+      requireContentBlock(contents, "JL_PROPOSAL", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
+      requireContentBlock(contents, "PROPOSAL", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
+      requireContentBlock(contents, "JL_COMMIT", "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT");
+      requireContentBlock(contents, "COMMIT", "2PLT_60_IO_CONTRACT_RESPONDER_COMMIT");
+      break;
+    case "UNRESOLVED":
+      validateRequiredToResolveBlock(contents);
+      break;
+    case "ABEND": {
+      const abend = requireContentBlock(contents, "ABEND");
+      const body = abend.body as Record<string, unknown>;
+      if (body.reason_code == null || body.reason_code === "") {
+        throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "ABEND response must include message.contents.ABEND.body.reason_code", {
+          missing: ["message.contents.ABEND.body.reason_code"],
+        });
+      }
+      validateReasonCodeIfPresent(body, "message.contents.ABEND.body.reason_code");
+      break;
+    }
   }
 }
 
@@ -394,18 +484,13 @@ function materializedSourceContentHash(busId: string, blockName: string): string
   return `MATERIALIZED_BLOCK_CONTENT_HASH:${busId}:${blockName}`;
 }
 
-function fillCurrentContentBlockSourceFields(contents: Record<string, unknown>, busId: string, terminal: ResponseTerminal | null): void {
-  for (const [blockName, rawBlock] of Object.entries(contents)) {
-    if (!isPlainObject(rawBlock)) continue;
-    const block = rawBlock as Record<string, unknown>;
-    if (block.source_kind !== "CURRENT_MESSAGE") continue;
-    // CURRENT_MESSAGE block source metadata is materialized by the current bus message itself.
-    // Fixture/static values are overwritten so DBMS correlation never depends on pre-mutation IDs.
-    block.source_bus_id = busId;
-    block.source_block_name = blockName;
-    if (terminal) block.source_terminal = terminal;
-    block.source_content_hash = materializedSourceContentHash(busId, blockName);
-  }
+function fillCurrentContentBlockSourceFields(contents: Record<string, unknown>, busId: string, currentBlockName: string): void {
+  const rawBlock = contents[currentBlockName];
+  if (!isPlainObject(rawBlock)) return;
+  // The current message block is materialized by the current bus message itself.
+  // Fixture/static values are overwritten so DBMS correlation never depends on pre-mutation IDs.
+  rawBlock.bus_id = busId;
+  rawBlock.content_hash = materializedSourceContentHash(busId, currentBlockName);
 }
 
 function validateRequestProfile(msgType: BusMessageType, opId: OpId, contents: Record<string, unknown>, toOwnerId: string, flowOwnerId: string): void {
@@ -419,45 +504,10 @@ function validateRequestProfile(msgType: BusMessageType, opId: OpId, contents: R
   }
 
   if (opId === "JL_PROPOSAL") {
-    requireContentBlock(contents, "make_proposal", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
+    requireContentBlock(contents, "JL_PROPOSAL", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
   }
 
   validateProposalBlockForTargetRequest(opId, contents);
-}
-
-function validateResponseProfile(opId: OpId, terminal: ResponseTerminal, contents: Record<string, unknown>): void {
-  validateResponseCorrelation(opId, contents);
-  validateNonCommitArtifactCompletionGate(terminal, contents);
-
-  switch (terminal) {
-    case "PROPOSAL": {
-      requireContentBlock(contents, "make_proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
-      const proposal = requireContentBlock(contents, "proposal", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
-      const body = proposal.body as Record<string, unknown>;
-      if (body.ops != null) body.ops = validateOpsArray(body.ops);
-      break;
-    }
-    case "COMMIT":
-      requireContentBlock(contents, "make_proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
-      requireContentBlock(contents, "proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
-      requireContentBlock(contents, "commit_request", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT");
-      requireContentBlock(contents, "commit", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_RESPONDER_COMMIT");
-      break;
-    case "UNRESOLVED":
-      validateRequiredToResolveBlock(contents);
-      break;
-    case "ABEND": {
-      const abend = requireContentBlock(contents, "abend", "CURRENT_MESSAGE");
-      const body = abend.body as Record<string, unknown>;
-      if (body.reason_code == null || body.reason_code === "") {
-        throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "ABEND response must include message.contents.abend.body.reason_code", {
-          missing: ["message.contents.abend.body.reason_code"],
-        });
-      }
-      validateReasonCodeIfPresent(body, "message.contents.abend.body.reason_code");
-      break;
-    }
-  }
 }
 
 export function normalizeBusTs(busTs: unknown): number {
@@ -522,11 +572,9 @@ export function validateBusLoose(bus: any): {
     "from_owner_id",
     "to_owner_id",
     "message.schema_id",
-    "message.msg_type",
     "message.op_id",
     "message.owner_id",
     "message.lane_id",
-    "message.request_id",
   ]);
 
   const schema_id = String(bus.schema_id);
@@ -548,21 +596,16 @@ export function validateBusLoose(bus: any): {
     throw new HttpError(400, API_ERROR_CODES.INVALID_MESSAGE_SCHEMA_ID, `message.schema_id must be ${MESSAGE_SCHEMA_ID}`);
   }
 
-  const msg_type_raw = String(bus.message.msg_type);
-  if (!isBusMessageType(msg_type_raw)) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_MSG_TYPE, `message.msg_type must be ${MESSAGE_TYPES.REQUEST} or ${MESSAGE_TYPES.RESPONSE}`);
-  }
-  const msg_type = msg_type_raw as BusMessageType;
-
   const op_id = validateOpIdLiteral(bus.message.op_id, "message.op_id");
+  const msg_type = msgTypeForOpId(op_id);
+  // Phase1E-2F-6X-8: message.msg_type is derived from message.op_id and removed from stored bus_json.
+  delete (bus.message as any).msg_type;
   const flow_owner_id = validateOwnerId(String((bus.message as any).owner_id), "message.owner_id");
   const lane_id = validateLaneId(String((bus.message as any).lane_id), "message.lane_id");
   (bus.message as any).owner_id = flow_owner_id;
   (bus.message as any).lane_id = lane_id;
   delete (bus.message as any).flow;
   delete (bus.message as any).io;
-  const request_id = String(bus.message.request_id);
-
   if ((bus.message as any).contents == null && (bus.message as any).payload != null) {
     (bus.message as any).contents = (bus.message as any).payload;
     delete (bus.message as any).payload;
@@ -573,20 +616,62 @@ export function validateBusLoose(bus: any): {
 
   const contents = (bus.message as any).contents as Record<string, unknown>;
   // Phase1E-2F-6X-4: response correlation is carried by the received request block
-  // source_bus_id. Legacy response metadata block is ignored and removed before storing.
+  // bus_id. Legacy response metadata block is ignored and removed before storing.
   delete (contents as any).meta;
-  const makeProposalBlock = getContentBlock(contents, "make_proposal");
+  const responseTerminal = validateContractDocForMessage(doc_id, msg_type, op_id);
+  const sourceRequestOpId = msg_type === MESSAGE_TYPES.RESPONSE ? responseRequestOpIdForDocId(doc_id) : null;
+  const sequenceOpId = sourceRequestOpId ?? op_id;
+  const expectedSequence = expectedContentBlockSequence(msg_type, sequenceOpId as OpId, responseTerminal);
+  if ((bus.message as any).sequence == null) {
+    (bus.message as any).sequence = expectedSequence;
+  }
+  if (!Array.isArray((bus.message as any).sequence) || (bus.message as any).sequence.some((v: unknown) => typeof v !== "string")) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "message.sequence must be an array of content block names", { field: "message.sequence" });
+  }
+  const sequence = ((bus.message as any).sequence as string[]).map((v) => String(v));
+  if (JSON.stringify(sequence) !== JSON.stringify(expectedSequence)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "message.sequence does not match op_id/doc_id", { op_id, doc_id, sequence, expected_sequence: expectedSequence });
+  }
+  (bus.message as any).sequence = sequence;
+  const makeProposalBlockForRequestId = getContentBlock(contents, "JL_PROPOSAL");
+  const request_id = typeof makeProposalBlockForRequestId?.bus_id === "string" && makeProposalBlockForRequestId.bus_id.trim() ? makeProposalBlockForRequestId.bus_id.trim() : bus_id;
+  // Phase1E-2F-6X-8: message.request_id is replaced by message.contents.JL_PROPOSAL.bus_id.
+  delete (bus.message as any).request_id;
+  const makeProposalBlock = getContentBlock(contents, "JL_PROPOSAL");
   if (makeProposalBlock && isPlainObject(makeProposalBlock.body)) {
     const body = makeProposalBlock.body as Record<string, unknown>;
     if (body.ops != null) body.ops = validateOpsArray(body.ops);
   }
-  const responseTerminal = validateContractDocForMessage(doc_id, msg_type, op_id);
-  fillCurrentContentBlockSourceFields(contents, bus_id, responseTerminal);
+  const currentBlockName = responseTerminal ?? op_id;
+  fillCurrentContentBlockSourceFields(contents, bus_id, currentBlockName);
+  const currentBlock = requireContentBlock(contents, currentBlockName);
+  if (doc_id !== currentBlock.doc_id) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "envelope doc_id must match current content block doc_id", {
+      doc_id,
+      current_block: currentBlockName,
+      current_block_doc_id: currentBlock.doc_id,
+    });
+  }
+  if (bus_id !== currentBlock.bus_id) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "envelope bus_id must match current content block bus_id", {
+      bus_id,
+      current_block: currentBlockName,
+      current_block_bus_id: currentBlock.bus_id,
+    });
+  }
+  const contentKeys = Object.keys(contents).sort();
+  const sequenceKeys = [...sequence].sort();
+  if (JSON.stringify(contentKeys) !== JSON.stringify(sequenceKeys)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "message.sequence must exactly match message.contents keys", {
+      contents_keys: contentKeys,
+      sequence,
+    });
+  }
 
   if (msg_type === MESSAGE_TYPES.REQUEST) {
     validateRequestProfile(msg_type, op_id, contents, to_owner_id, flow_owner_id);
   } else {
-    validateResponseProfile(op_id, responseTerminal as ResponseTerminal, contents);
+    validateResponseProfile(sourceRequestOpId as "JL_PROPOSAL" | "JL_COMMIT" | "JL_REJECT", responseTerminal as ResponseTerminal, contents);
   }
 
   const bus_json = JSON.stringify(bus);

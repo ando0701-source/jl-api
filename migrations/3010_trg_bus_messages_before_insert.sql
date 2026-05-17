@@ -10,7 +10,7 @@ BEFORE INSERT ON bus_messages
 FOR EACH ROW
 BEGIN
   SELECT RAISE(ABORT, 'invalid_op_id')
-  WHERE NEW.op_id NOT IN ('JL_PROPOSAL','JL_COMMIT','JL_REJECT');
+  WHERE NEW.op_id NOT IN ('JL_PROPOSAL','JL_COMMIT','JL_REJECT','PROPOSAL','COMMIT','UNRESOLVED','ABEND');
 
   SELECT RAISE(ABORT, 'invalid_contract_doc_id')
   WHERE COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT)), '') = '';
@@ -26,18 +26,16 @@ BEGIN
   SELECT RAISE(ABORT, 'invalid_response_contract_doc_id')
   WHERE NEW.msg_type = 'RESPONSE'
     AND NOT (
-      (NEW.op_id = 'JL_PROPOSAL' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) IN (
-        '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL',
+      (NEW.op_id = 'PROPOSAL' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL')
+      OR (NEW.op_id = 'COMMIT' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT')
+      OR (NEW.op_id = 'UNRESOLVED' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) IN (
         '2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL',
-        '2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL'
-      ))
-      OR (NEW.op_id = 'JL_COMMIT' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) IN (
-        '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT',
         '2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_COMMIT',
-        '2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_COMMIT'
+        '2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_REJECT'
       ))
-      OR (NEW.op_id = 'JL_REJECT' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) IN (
-        '2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_REJECT',
+      OR (NEW.op_id = 'ABEND' AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) IN (
+        '2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL',
+        '2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_COMMIT',
         '2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_REJECT'
       ))
     );
@@ -46,10 +44,10 @@ BEGIN
   WHERE NEW.msg_type = 'REQUEST'
     AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
     AND (
-      COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT)), '') = ''
-      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.io_contract_doc_id') AS TEXT)), '') <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
-      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_terminal') AS TEXT)), '') <> 'PROPOSAL'
-      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_block_name') AS TEXT)), '') <> 'proposal'
+      COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT)), '') = ''
+      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.doc_id') AS TEXT)), '') <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
+      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.msg_type') AS TEXT)), '') <> 'RESPONSE'
+      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.op_id') AS TEXT)), '') <> 'PROPOSAL'
     );
 
   SELECT RAISE(ABORT, 'proposal_ref_not_found')
@@ -58,7 +56,7 @@ BEGIN
     AND NOT EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
     );
 
   SELECT RAISE(ABORT, 'proposal_ref_target_not_response')
@@ -67,7 +65,7 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
         AND p.msg_type <> 'RESPONSE'
     );
 
@@ -77,9 +75,9 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
-        AND p.op_id <> 'JL_PROPOSAL'
+        AND p.op_id <> 'PROPOSAL'
     );
 
   SELECT RAISE(ABORT, 'proposal_ref_target_terminal_mismatch')
@@ -88,9 +86,9 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
-        AND p.op_id = 'JL_PROPOSAL'
+        AND p.op_id = 'PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
     );
 
@@ -100,9 +98,9 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
-        AND p.op_id = 'JL_PROPOSAL'
+        AND p.op_id = 'PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
         AND p.flow_owner_id <> NEW.flow_owner_id
     );
@@ -113,9 +111,9 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
-        AND p.op_id = 'JL_PROPOSAL'
+        AND p.op_id = 'PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
         AND p.flow_owner_id = NEW.flow_owner_id
         AND p.lane_id <> NEW.lane_id
@@ -127,9 +125,9 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
-        AND p.op_id = 'JL_PROPOSAL'
+        AND p.op_id = 'PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
         AND p.flow_owner_id = NEW.flow_owner_id
         AND p.lane_id = NEW.lane_id
@@ -143,16 +141,16 @@ BEGIN
       SELECT 1
       FROM bus_messages p
       LEFT JOIN bus_messages q
-        ON q.bus_id = CAST(json_extract(p.bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT)
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
+        ON q.bus_id = CAST(json_extract(p.bus_json, '$.message.contents.JL_PROPOSAL.bus_id') AS TEXT)
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
-        AND p.op_id = 'JL_PROPOSAL'
+        AND p.op_id = 'PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
         AND p.flow_owner_id = NEW.flow_owner_id
         AND p.lane_id = NEW.lane_id
         AND p.request_id = NEW.request_id
         AND (
-          COALESCE(TRIM(CAST(json_extract(p.bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT)), '') = ''
+          COALESCE(TRIM(CAST(json_extract(p.bus_json, '$.message.contents.JL_PROPOSAL.bus_id') AS TEXT)), '') = ''
           OR q.bus_id IS NULL
           OR q.msg_type <> 'REQUEST'
           OR q.op_id <> 'JL_PROPOSAL'
@@ -172,15 +170,16 @@ BEGIN
       WHERE prior_req.msg_type = 'REQUEST'
         AND prior_req.op_id IN ('JL_COMMIT','JL_REJECT')
         AND prior_req.bus_id <> NEW.bus_id
-        AND TRIM(CAST(json_extract(prior_req.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT)) = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
+        AND TRIM(CAST(json_extract(prior_req.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT)) = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
     );
 
-  SELECT RAISE(ABORT, 'missing_response_request_source_bus_id')
+  SELECT RAISE(ABORT, 'missing_response_request_bus_id')
   WHERE NEW.msg_type = 'RESPONSE'
     AND COALESCE(TRIM(CASE
-      WHEN NEW.op_id = 'JL_COMMIT' THEN CAST(json_extract(NEW.bus_json, '$.message.contents.commit_request.source_bus_id') AS TEXT)
-      WHEN NEW.op_id = 'JL_REJECT' THEN CAST(json_extract(NEW.bus_json, '$.message.contents.reject_request.source_bus_id') AS TEXT)
-      ELSE CAST(json_extract(NEW.bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT)
+      WHEN CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT' THEN CAST(json_extract(NEW.bus_json, '$.message.contents.JL_COMMIT.bus_id') AS TEXT)
+      WHEN CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) LIKE '%_FROM_JL_COMMIT' THEN CAST(json_extract(NEW.bus_json, '$.message.contents.JL_COMMIT.bus_id') AS TEXT)
+      WHEN CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) LIKE '%_FROM_JL_REJECT' THEN CAST(json_extract(NEW.bus_json, '$.message.contents.JL_REJECT.bus_id') AS TEXT)
+      ELSE CAST(json_extract(NEW.bus_json, '$.message.contents.JL_PROPOSAL.bus_id') AS TEXT)
     END), '') = '';
 
   SELECT RAISE(ABORT, 'invalid_profile_doc_id')
@@ -202,23 +201,23 @@ BEGIN
   SELECT RAISE(ABORT, 'invalid_request_payload')
   WHERE NEW.msg_type = 'REQUEST'
     AND NEW.op_id = 'JL_PROPOSAL'
-    AND json_type(NEW.bus_json, '$.message.contents.make_proposal.body') <> 'object';
+    AND json_type(NEW.bus_json, '$.message.contents.JL_PROPOSAL.body') <> 'object';
 
   SELECT RAISE(ABORT, 'invalid_response_payload')
   WHERE NEW.msg_type = 'RESPONSE'
     AND (
       (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
-        AND json_type(NEW.bus_json, '$.message.contents.proposal.body') <> 'object')
+        AND json_type(NEW.bus_json, '$.message.contents.PROPOSAL.body') <> 'object')
       OR (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT'
-        AND json_type(NEW.bus_json, '$.message.contents.commit.body') <> 'object')
+        AND json_type(NEW.bus_json, '$.message.contents.COMMIT.body') <> 'object')
       OR (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) LIKE '%_UNRESOLVED_%'
-        AND COALESCE((json_type(NEW.bus_json, '$.message.contents.unresolved.body.required_to_resolve') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.unresolved.body.required_to_resolve')) > 0), 0) = 0)
+        AND COALESCE((json_type(NEW.bus_json, '$.message.contents.UNRESOLVED.body.required_to_resolve') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.UNRESOLVED.body.required_to_resolve')) > 0), 0) = 0)
       OR (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) LIKE '%_ABEND_%'
-        AND COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.abend.body.reason_code') AS TEXT)), '') = '')
+        AND COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.ABEND.body.reason_code') AS TEXT)), '') = '')
     );
 
   SELECT RAISE(ABORT, 'invalid_artifact_completion')
   WHERE NEW.msg_type = 'RESPONSE'
     AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT'
-    AND (json_type(NEW.bus_json, '$.message.contents.commit') IS NOT NULL OR json_type(NEW.bus_json, '$.message.contents.result') IS NOT NULL);
+    AND (json_type(NEW.bus_json, '$.message.contents.COMMIT') IS NOT NULL OR json_type(NEW.bus_json, '$.message.contents.result') IS NOT NULL);
 END;

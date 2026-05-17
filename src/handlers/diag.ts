@@ -77,6 +77,30 @@ function sqlQuote(value: unknown): string {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
+
+function messageTypeForOpId(op_id: string): "REQUEST" | "RESPONSE" {
+  return op_id === "JL_PROPOSAL" || op_id === "JL_COMMIT" || op_id === "JL_REJECT" ? "REQUEST" : "RESPONSE";
+}
+
+function sequenceForDocId(doc_id: string, op_id: string): string[] {
+  if (doc_id === "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL") return ["JL_PROPOSAL"];
+  if (doc_id === "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL") return ["JL_PROPOSAL", "PROPOSAL"];
+  if (doc_id === "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT") return ["JL_PROPOSAL", "PROPOSAL", "JL_COMMIT"];
+  if (doc_id === "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT") return ["JL_PROPOSAL", "PROPOSAL", "JL_REJECT"];
+  if (doc_id === "2PLT_60_IO_CONTRACT_RESPONDER_COMMIT") return ["JL_PROPOSAL", "PROPOSAL", "JL_COMMIT", "COMMIT"];
+  if (doc_id.includes("_UNRESOLVED_FROM_JL_PROPOSAL")) return ["JL_PROPOSAL", "UNRESOLVED"];
+  if (doc_id.includes("_UNRESOLVED_FROM_JL_COMMIT")) return ["JL_PROPOSAL", "PROPOSAL", "JL_COMMIT", "UNRESOLVED"];
+  if (doc_id.includes("_UNRESOLVED_FROM_JL_REJECT")) return ["JL_PROPOSAL", "PROPOSAL", "JL_REJECT", "UNRESOLVED"];
+  if (doc_id.includes("_ABEND_FROM_JL_PROPOSAL")) return ["JL_PROPOSAL", "ABEND"];
+  if (doc_id.includes("_ABEND_FROM_JL_COMMIT")) return ["JL_PROPOSAL", "PROPOSAL", "JL_COMMIT", "ABEND"];
+  if (doc_id.includes("_ABEND_FROM_JL_REJECT")) return ["JL_PROPOSAL", "PROPOSAL", "JL_REJECT", "ABEND"];
+  return [op_id];
+}
+
+function rootRequestId(obj: any): string {
+  return String(obj?.message?.contents?.JL_PROPOSAL?.bus_id ?? obj?.bus_id ?? "");
+}
+
 function compactJson(obj: unknown): string {
   return JSON.stringify(obj);
 }
@@ -88,7 +112,7 @@ function busJsonSql(obj: unknown): string {
 function insertBusSql(obj: any): string {
   const m = obj.message;
   return `INSERT INTO bus_messages(schema_id,bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,bus_json)
-VALUES('2PLT_BUS/v1',${sqlQuote(obj.bus_id)},${Number(obj.bus_ts)},'PENDING',${sqlQuote(obj.from_owner_id)},${sqlQuote(obj.to_owner_id)},NULL,NULL,NULL,'2PLT_MESSAGE/v1',${sqlQuote(m.msg_type)},${sqlQuote(m.op_id)},${sqlQuote(m.owner_id)},${sqlQuote(m.lane_id)},${sqlQuote(m.request_id)},${busJsonSql(obj)});`;
+VALUES('2PLT_BUS/v1',${sqlQuote(obj.bus_id)},${Number(obj.bus_ts)},'PENDING',${sqlQuote(obj.from_owner_id)},${sqlQuote(obj.to_owner_id)},NULL,NULL,NULL,'2PLT_MESSAGE/v1',${sqlQuote(messageTypeForOpId(m.op_id))},${sqlQuote(m.op_id)},${sqlQuote(m.owner_id)},${sqlQuote(m.lane_id)},${sqlQuote(rootRequestId(obj))},${busJsonSql(obj)});`;
 }
 
 function requestEnvelope(
@@ -113,31 +137,41 @@ function requestEnvelope(
     to_owner_id: owner,
     message: {
       schema_id: "2PLT_MESSAGE/v1",
-      msg_type: "REQUEST",
       op_id,
+      sequence: sequenceForDocId(REQUEST_DOC_BY_OP_ID[op_id], op_id),
       owner_id: owner,
       lane_id,
-      request_id,
       contents,
     },
   };
 }
 
 
-function materializedSourceHash(source_bus_id: string, source_block_name: string): string {
-  return `DIAG_BLOCK_CONTENT_HASH:${source_bus_id}:${source_block_name}`;
+function materializedContentHash(bus_id: string, block_name: string): string {
+  return `DIAG_BLOCK_CONTENT_HASH:${bus_id}:${block_name}`;
 }
 
-function currentBlock(io_contract_doc_id: string, source_bus_id: string, source_block_name: string, body: Record<string, unknown> = {}, source_terminal?: string): Record<string, unknown> {
-  const block: Record<string, unknown> = { source_kind: "CURRENT_MESSAGE", io_contract_doc_id, source_bus_id, source_block_name, source_content_hash: materializedSourceHash(source_bus_id, source_block_name), body, attachment: [] };
-  if (source_terminal) block.source_terminal = source_terminal;
-  return block;
+function contentBlockIdentity(block_name: string): { msg_type: string; op_id: string } {
+  const map: Record<string, { msg_type: string; op_id: string }> = {
+    JL_PROPOSAL: { msg_type: "REQUEST", op_id: "JL_PROPOSAL" },
+    PROPOSAL: { msg_type: "RESPONSE", op_id: "PROPOSAL" },
+    JL_COMMIT: { msg_type: "REQUEST", op_id: "JL_COMMIT" },
+    JL_REJECT: { msg_type: "REQUEST", op_id: "JL_REJECT" },
+    COMMIT: { msg_type: "RESPONSE", op_id: "COMMIT" },
+    UNRESOLVED: { msg_type: "RESPONSE", op_id: "UNRESOLVED" },
+    ABEND: { msg_type: "RESPONSE", op_id: "ABEND" },
+  };
+  return map[block_name] ?? { msg_type: "REQUEST", op_id: "JL_PROPOSAL" };
 }
 
-function receivedBlock(io_contract_doc_id: string, source_bus_id: string, source_block_name: string, body: Record<string, unknown> = {}, source_terminal?: string): Record<string, unknown> {
-  const block: Record<string, unknown> = { source_kind: "RECEIVED_BLOCK", io_contract_doc_id, source_bus_id, source_block_name, source_content_hash: materializedSourceHash(source_bus_id, source_block_name), body, attachment: [] };
-  if (source_terminal) block.source_terminal = source_terminal;
-  return block;
+function currentBlock(doc_id: string, bus_id: string, block_name: string, body: Record<string, unknown> = {}): Record<string, unknown> {
+  const identity = contentBlockIdentity(block_name);
+  return { msg_type: identity.msg_type, op_id: identity.op_id, body, attachment: [], doc_id, bus_id, content_hash: materializedContentHash(bus_id, block_name) };
+}
+
+function receivedBlock(doc_id: string, bus_id: string, block_name: string, body: Record<string, unknown> = {}): Record<string, unknown> {
+  const identity = contentBlockIdentity(block_name);
+  return { msg_type: identity.msg_type, op_id: identity.op_id, body, attachment: [], doc_id, bus_id, content_hash: materializedContentHash(bus_id, block_name) };
 }
 
 function makeProposalBody(task: string): Record<string, unknown> {
@@ -154,7 +188,7 @@ function makeProposalBody(task: string): Record<string, unknown> {
 
 function proposalRequest(bus_id: string, owner: string, lane_id: string, request_id: string, bus_ts: number): any {
   return requestEnvelope(bus_id, "JL_PROPOSAL", owner, lane_id, request_id, {
-    make_proposal: currentBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", bus_id, "make_proposal", makeProposalBody("HTTP /diag trigger smoke setup")),
+    JL_PROPOSAL: currentBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", bus_id, "JL_PROPOSAL", makeProposalBody("HTTP /diag trigger smoke setup")),
   }, bus_ts);
 }
 
@@ -164,18 +198,18 @@ function proposalResponse(
   lane_id: string,
   request_id: string,
   terminal: "PROPOSAL" | "UNRESOLVED" | "ABEND",
-  request_source_bus_id: string,
+  request_bus_id: string,
   bus_ts: number,
 ): any {
   const contents: Record<string, unknown> = {
-    make_proposal: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", request_source_bus_id, "make_proposal"),
+    JL_PROPOSAL: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", request_bus_id, "JL_PROPOSAL"),
   };
   if (terminal === "PROPOSAL") {
-    contents.proposal = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", bus_id, "proposal", { ops: [{ kind: "fs.write", path: "scratch/diag/proposal.txt", content: "diag trigger setup" }] }, "PROPOSAL");
+    contents.PROPOSAL = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", bus_id, "PROPOSAL", { ops: [{ kind: "fs.write", path: "scratch/diag/proposal.txt", content: "diag trigger setup" }] });
   } else if (terminal === "UNRESOLVED") {
-    contents.unresolved = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL", bus_id, "unresolved", { required_to_resolve: [{ field: "diag", reason: "trigger_probe" }] }, "UNRESOLVED");
+    contents.UNRESOLVED = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL", bus_id, "UNRESOLVED", { required_to_resolve: [{ field: "diag", reason: "trigger_probe" }] });
   } else {
-    contents.abend = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL", bus_id, "abend", { reason_code: "PROTOCOL_VIOLATION" }, "ABEND");
+    contents.ABEND = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL", bus_id, "ABEND", { reason_code: "PROTOCOL_VIOLATION" });
   }
   return {
     schema_id: "2PLT_BUS/v1",
@@ -190,11 +224,10 @@ function proposalResponse(
     to_owner_id: MANAGER,
     message: {
       schema_id: "2PLT_MESSAGE/v1",
-      msg_type: "RESPONSE",
-      op_id: "JL_PROPOSAL",
+      op_id: terminal,
+      sequence: sequenceForDocId(PROPOSAL_RESPONSE_DOC_BY_TERMINAL[terminal], terminal),
       owner_id: owner,
       lane_id,
-      request_id,
       contents,
     },
   };
@@ -210,11 +243,11 @@ function targetRequest(
   bus_ts: number,
 ): any {
   const currentDoc = op_id === "JL_COMMIT" ? "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT" : "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT";
-  const targetBlock = op_id === "JL_COMMIT" ? "commit_request" : "reject_request";
+  const targetBlock = op_id === "JL_COMMIT" ? "JL_COMMIT" : "JL_REJECT";
   return requestEnvelope(bus_id, op_id, owner, lane_id, request_id, {
-    make_proposal: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", `ORIGIN_${proposalSourceBusId}`, "make_proposal"),
-    proposal: receivedBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", proposalSourceBusId, "proposal", {}, "PROPOSAL"),
-    [targetBlock]: currentBlock(currentDoc, bus_id, targetBlock, { target_block_name: "proposal", task_brief: "HTTP /diag trigger smoke target" }),
+    JL_PROPOSAL: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", `ORIGIN_${proposalSourceBusId}`, "JL_PROPOSAL"),
+    PROPOSAL: receivedBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", proposalSourceBusId, "PROPOSAL", {}),
+    [targetBlock]: currentBlock(currentDoc, bus_id, targetBlock, { task_brief: "HTTP /diag trigger smoke target" }),
   }, bus_ts);
 }
 
@@ -239,10 +272,10 @@ function phase1aCases(run_id: string, bus_ts: number): TriggerCase[] {
   s = setupPair("P1A_N02");
   add("N02_target_not_response", "proposal_ref_target_not_response", targetRequest(`BUS_DIAG_P1A_N02_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.rid, s.preq.bus_id, bus_ts), [s.preq]);
 
-  s = setupPair("P1A_N03", WORKER, LANE, undefined, "UNRESOLVED");
+  s = setupPair("P1A_N03", WORKER, LANE, undefined);
   add("N03_terminal_unresolved", "proposal_ref_target_terminal_mismatch", targetRequest(`BUS_DIAG_P1A_N03_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.rid, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
-  s = setupPair("P1A_N04", WORKER, LANE, undefined, "ABEND");
+  s = setupPair("P1A_N04", WORKER, LANE, undefined);
   add("N04_terminal_abend", "proposal_ref_target_terminal_mismatch", targetRequest(`BUS_DIAG_P1A_N04_REQ_REJECT_${run_id}`, "JL_REJECT", WORKER, LANE, s.rid, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   s = setupPair("P1A_N05", WORKER, OTHER_LANE);

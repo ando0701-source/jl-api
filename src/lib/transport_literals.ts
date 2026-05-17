@@ -36,6 +36,10 @@ export const OP_IDS = {
   JL_PROPOSAL: "JL_PROPOSAL",
   JL_COMMIT: "JL_COMMIT",
   JL_REJECT: "JL_REJECT",
+  PROPOSAL: "PROPOSAL",
+  COMMIT: "COMMIT",
+  UNRESOLVED: "UNRESOLVED",
+  ABEND: "ABEND",
 } as const;
 
 export type OpId = typeof OP_IDS[keyof typeof OP_IDS];
@@ -139,7 +143,15 @@ export function isOpKind(v: string): v is OpKind {
 }
 
 export function isOpId(v: string): v is OpId {
+  return Object.values(OP_IDS).includes(v as OpId);
+}
+
+export function isRequestOpId(v: string): v is typeof OP_IDS.JL_PROPOSAL | typeof OP_IDS.JL_COMMIT | typeof OP_IDS.JL_REJECT {
   return v === OP_IDS.JL_PROPOSAL || v === OP_IDS.JL_COMMIT || v === OP_IDS.JL_REJECT;
+}
+
+export function isResponseOpId(v: string): v is typeof OP_IDS.PROPOSAL | typeof OP_IDS.COMMIT | typeof OP_IDS.UNRESOLVED | typeof OP_IDS.ABEND {
+  return v === OP_IDS.PROPOSAL || v === OP_IDS.COMMIT || v === OP_IDS.UNRESOLVED || v === OP_IDS.ABEND;
 }
 
 
@@ -160,6 +172,8 @@ export function defaultProfileDocIdForOpId(opId: OpId): ProfileDocId {
       return PROFILE_DOC_IDS.JL_COMMIT;
     case OP_IDS.JL_REJECT:
       return PROFILE_DOC_IDS.JL_REJECT;
+    default:
+      throw new Error(`No request profile for response op_id ${opId}`);
   }
 }
 
