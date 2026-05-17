@@ -40,7 +40,7 @@ SELECT
     'target_flow_owner_id', target_flow_owner_id,
     'target_lane_id', target_lane_id,
     'target_request_id', target_request_id,
-    'target_echo_request_bus_id', target_echo_request_bus_id,
+    'target_request_source_bus_id', target_request_source_bus_id,
     'origin_request_bus_id', origin_request_bus_id,
     'origin_msg_type', origin_msg_type,
     'origin_op_id', origin_op_id,

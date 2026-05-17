@@ -143,7 +143,7 @@ BEGIN
       SELECT 1
       FROM bus_messages p
       LEFT JOIN bus_messages q
-        ON q.bus_id = CAST(json_extract(p.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)
+        ON q.bus_id = CAST(json_extract(p.bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT)
       WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
@@ -152,7 +152,7 @@ BEGIN
         AND p.lane_id = NEW.lane_id
         AND p.request_id = NEW.request_id
         AND (
-          COALESCE(TRIM(CAST(json_extract(p.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)), '') = ''
+          COALESCE(TRIM(CAST(json_extract(p.bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT)), '') = ''
           OR q.bus_id IS NULL
           OR q.msg_type <> 'REQUEST'
           OR q.op_id <> 'JL_PROPOSAL'
@@ -175,9 +175,13 @@ BEGIN
         AND TRIM(CAST(json_extract(prior_req.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT)) = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT))
     );
 
-  SELECT RAISE(ABORT, 'missing_echo_request_bus_id')
+  SELECT RAISE(ABORT, 'missing_response_request_source_bus_id')
   WHERE NEW.msg_type = 'RESPONSE'
-    AND COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)), '') = '';
+    AND COALESCE(TRIM(CASE
+      WHEN NEW.op_id = 'JL_COMMIT' THEN CAST(json_extract(NEW.bus_json, '$.message.contents.commit_request.source_bus_id') AS TEXT)
+      WHEN NEW.op_id = 'JL_REJECT' THEN CAST(json_extract(NEW.bus_json, '$.message.contents.reject_request.source_bus_id') AS TEXT)
+      ELSE CAST(json_extract(NEW.bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT)
+    END), '') = '';
 
   SELECT RAISE(ABORT, 'invalid_profile_doc_id')
   WHERE json_extract(NEW.bus_json, '$.message.contents.profile_doc_id') IS NOT NULL

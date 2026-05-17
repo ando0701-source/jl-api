@@ -358,20 +358,26 @@ function validateProposalBlockForTargetRequest(opId: OpId, contents: Record<stri
   }
 }
 
-function validateResponseCorrelation(contents: Record<string, unknown>): void {
-  const meta = contents.meta;
-  if (!isPlainObject(meta)) {
-    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "RESPONSE must include message.contents.meta.echo_request_bus_id", {
-      missing: ["message.contents.meta.echo_request_bus_id"],
+function responseRequestBlockNameForOpId(opId: OpId): "make_proposal" | "commit_request" | "reject_request" {
+  if (opId === "JL_COMMIT") return "commit_request";
+  if (opId === "JL_REJECT") return "reject_request";
+  return "make_proposal";
+}
+
+function responseRequestContractDocIdForOpId(opId: OpId): string {
+  return REQUEST_DOC_BY_OP_ID[opId];
+}
+
+function validateResponseCorrelation(opId: OpId, contents: Record<string, unknown>): void {
+  const blockName = responseRequestBlockNameForOpId(opId);
+  const requestBlock = requireContentBlock(contents, blockName, "RECEIVED_BLOCK", responseRequestContractDocIdForOpId(opId));
+  const sourceBusId = requestBlock.source_bus_id;
+  if (typeof sourceBusId !== "string" || sourceBusId.trim() === "") {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `RESPONSE must include non-empty message.contents.${blockName}.source_bus_id`, {
+      missing: [`message.contents.${blockName}.source_bus_id`],
     });
   }
-  const echo = meta.echo_request_bus_id;
-  if (typeof echo !== "string" || echo.trim() === "") {
-    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "RESPONSE must include non-empty message.contents.meta.echo_request_bus_id", {
-      missing: ["message.contents.meta.echo_request_bus_id"],
-    });
-  }
-  meta.echo_request_bus_id = echo.trim();
+  requestBlock.source_bus_id = sourceBusId.trim();
 }
 
 function validateNonCommitArtifactCompletionGate(terminal: ResponseTerminal, contents: Record<string, unknown>): void {
@@ -385,7 +391,7 @@ function validateNonCommitArtifactCompletionGate(terminal: ResponseTerminal, con
 }
 
 function materializedSourceContentHash(busId: string, blockName: string): string {
-  return `MATERIALIZED_SOURCE_HASH:${busId}:${blockName}`;
+  return `MATERIALIZED_BLOCK_CONTENT_HASH:${busId}:${blockName}`;
 }
 
 function fillCurrentContentBlockSourceFields(contents: Record<string, unknown>, busId: string, terminal: ResponseTerminal | null): void {
@@ -418,7 +424,7 @@ function validateRequestProfile(msgType: BusMessageType, opId: OpId, contents: R
 }
 
 function validateResponseProfile(opId: OpId, terminal: ResponseTerminal, contents: Record<string, unknown>): void {
-  validateResponseCorrelation(contents);
+  validateResponseCorrelation(opId, contents);
   validateNonCommitArtifactCompletionGate(terminal, contents);
 
   switch (terminal) {
@@ -564,6 +570,9 @@ export function validateBusLoose(bus: any): {
   }
 
   const contents = (bus.message as any).contents as Record<string, unknown>;
+  // Phase1E-2F-6X-4: response correlation is carried by the received request block
+  // source_bus_id. Legacy response metadata block is ignored and removed before storing.
+  delete (contents as any).meta;
   const makeProposalBlock = getContentBlock(contents, "make_proposal");
   if (makeProposalBlock && isPlainObject(makeProposalBlock.body)) {
     const body = makeProposalBlock.body as Record<string, unknown>;

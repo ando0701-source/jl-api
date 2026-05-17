@@ -24,7 +24,7 @@ type ProposalTargetRow = {
   request_id: string;
   from_owner_id: string;
   to_owner_id: string;
-  echo_request_bus_id: string | null;
+  request_source_bus_id: string | null;
 };
 
 type OriginRequestRow = {
@@ -70,7 +70,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
        CAST(json_extract(bus_json, '$.doc_id') AS TEXT) AS contract_doc_id,
        flow_owner_id,lane_id,request_id,
        from_owner_id,to_owner_id,
-       CAST(json_extract(bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT) AS echo_request_bus_id
+       CAST(json_extract(bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT) AS request_source_bus_id
      FROM bus_messages
      WHERE bus_id = ?
      LIMIT 1`
@@ -139,11 +139,11 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
     );
   }
 
-  const echoRequestBusId = (target.echo_request_bus_id ?? "").trim();
+  const echoRequestBusId = (target.request_source_bus_id ?? "").trim();
   if (!echoRequestBusId) {
     rejectProposalRef(
       FAILURE_CODES.PROPOSAL_REF_ORIGIN_REQUEST_INVALID,
-      "target proposal response must carry contents.meta.echo_request_bus_id",
+      "target proposal response must carry message.contents.make_proposal.source_bus_id",
       x,
       { proposal_ref_bus_id: proposalRefBusId }
     );
@@ -173,7 +173,7 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
       x,
       {
         proposal_ref_bus_id: proposalRefBusId,
-        echo_request_bus_id: echoRequestBusId,
+        request_source_bus_id: echoRequestBusId,
         origin_found: !!origin,
         origin_msg_type: origin?.msg_type ?? null,
         origin_op_id: origin?.op_id ?? null,

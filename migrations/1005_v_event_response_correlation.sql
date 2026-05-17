@@ -28,7 +28,7 @@ SELECT
     'response_flow_owner_id', response_flow_owner_id,
     'response_lane_id', response_lane_id,
     'response_request_id', response_request_id,
-    'echo_request_bus_id', echo_request_bus_id,
+    'request_source_bus_id', request_source_bus_id,
     'request_bus_id', request_bus_id,
     'request_bus_ts', request_bus_ts,
     'request_op_id', request_op_id,

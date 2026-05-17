@@ -125,7 +125,7 @@ function requestEnvelope(
 
 
 function materializedSourceHash(source_bus_id: string, source_block_name: string): string {
-  return `DIAG_SOURCE_HASH:${source_bus_id}:${source_block_name}`;
+  return `DIAG_BLOCK_CONTENT_HASH:${source_bus_id}:${source_block_name}`;
 }
 
 function currentBlock(io_contract_doc_id: string, source_bus_id: string, source_block_name: string, body: Record<string, unknown> = {}, source_terminal?: string): Record<string, unknown> {
@@ -164,12 +164,11 @@ function proposalResponse(
   lane_id: string,
   request_id: string,
   terminal: "PROPOSAL" | "UNRESOLVED" | "ABEND",
-  echo_request_bus_id: string,
+  request_source_bus_id: string,
   bus_ts: number,
 ): any {
   const contents: Record<string, unknown> = {
-    meta: { echo_request_bus_id },
-    make_proposal: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", echo_request_bus_id, "make_proposal"),
+    make_proposal: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", request_source_bus_id, "make_proposal"),
   };
   if (terminal === "PROPOSAL") {
     contents.proposal = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", bus_id, "proposal", { ops: [{ kind: "fs.write", path: "scratch/diag/proposal.txt", content: "diag trigger setup" }] }, "PROPOSAL");

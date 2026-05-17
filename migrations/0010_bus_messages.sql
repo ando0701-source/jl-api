@@ -57,5 +57,9 @@ CREATE INDEX IF NOT EXISTS idx_request
 CREATE INDEX IF NOT EXISTS idx_op_id
   ON bus_messages(op_id, bus_ts, bus_id);
 
-CREATE INDEX IF NOT EXISTS idx_bus_messages_echo_request_bus_id
-  ON bus_messages (CAST(json_extract(bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT));
+CREATE INDEX IF NOT EXISTS idx_bus_messages_response_make_proposal_source_bus_id
+  ON bus_messages (CAST(json_extract(bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT));
+CREATE INDEX IF NOT EXISTS idx_bus_messages_response_commit_request_source_bus_id
+  ON bus_messages (CAST(json_extract(bus_json, '$.message.contents.commit_request.source_bus_id') AS TEXT));
+CREATE INDEX IF NOT EXISTS idx_bus_messages_response_reject_request_source_bus_id
+  ON bus_messages (CAST(json_extract(bus_json, '$.message.contents.reject_request.source_bus_id') AS TEXT));

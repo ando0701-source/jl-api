@@ -29,7 +29,7 @@ SELECT
   p.flow_owner_id AS target_flow_owner_id,
   p.lane_id AS target_lane_id,
   p.request_id AS target_request_id,
-  CAST(json_extract(p.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT) AS target_echo_request_bus_id,
+  CAST(json_extract(p.bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT) AS target_request_source_bus_id,
 
   q.bus_id AS origin_request_bus_id,
   q.msg_type AS origin_msg_type,
@@ -56,7 +56,7 @@ SELECT
     WHEN p.flow_owner_id <> r.flow_owner_id THEN 'PROPOSAL_REF_FLOW_OWNER_MISMATCH'
     WHEN p.lane_id <> r.lane_id THEN 'PROPOSAL_REF_LANE_MISMATCH'
     WHEN p.request_id <> r.request_id THEN 'PROPOSAL_REF_REQUEST_ID_MISMATCH'
-    WHEN COALESCE(TRIM(CAST(json_extract(p.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)), '') = '' THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
+    WHEN COALESCE(TRIM(CAST(json_extract(p.bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT)), '') = '' THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
     WHEN q.bus_id IS NULL THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
     WHEN q.msg_type <> 'REQUEST' THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
     WHEN q.op_id <> 'JL_PROPOSAL' THEN 'PROPOSAL_REF_ORIGIN_REQUEST_INVALID'
@@ -72,7 +72,7 @@ FROM bus_messages r
 LEFT JOIN bus_messages p
   ON p.bus_id = CAST(json_extract(r.bus_json, '$.message.contents.proposal.source_bus_id') AS TEXT)
 LEFT JOIN bus_messages q
-  ON q.bus_id = CAST(json_extract(p.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)
+  ON q.bus_id = CAST(json_extract(p.bus_json, '$.message.contents.make_proposal.source_bus_id') AS TEXT)
 LEFT JOIN bus_messages c
   ON c.bus_id = (
     SELECT prior_req.bus_id
