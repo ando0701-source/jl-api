@@ -46,10 +46,10 @@ BEGIN
   WHERE NEW.msg_type = 'REQUEST'
     AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
     AND (
-      COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT)), '') = ''
-      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.source_op_id') AS TEXT)), '') <> 'JL_PROPOSAL'
-      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.source_terminal') AS TEXT)), '') <> 'PROPOSAL'
-      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.resolution_mode') AS TEXT)), '') <> 'EXPLICIT_BUS_ID'
+      COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT)), '') = ''
+      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.io_contract_doc_id') AS TEXT)), '') <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
+      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_terminal') AS TEXT)), '') <> 'PROPOSAL'
+      OR COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_block_name') AS TEXT)), '') <> 'proposal'
     );
 
   SELECT RAISE(ABORT, 'proposal_ref_not_found')
@@ -58,7 +58,7 @@ BEGIN
     AND NOT EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
     );
 
   SELECT RAISE(ABORT, 'proposal_ref_target_not_response')
@@ -67,7 +67,7 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
         AND p.msg_type <> 'RESPONSE'
     );
 
@@ -77,7 +77,7 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id <> 'JL_PROPOSAL'
     );
@@ -88,7 +88,7 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
@@ -100,7 +100,7 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
@@ -113,7 +113,7 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
@@ -127,7 +127,7 @@ BEGIN
     AND EXISTS (
       SELECT 1
       FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
@@ -144,7 +144,7 @@ BEGIN
       FROM bus_messages p
       LEFT JOIN bus_messages q
         ON q.bus_id = CAST(json_extract(p.bus_json, '$.message.contents.meta.echo_request_bus_id') AS TEXT)
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
         AND p.op_id = 'JL_PROPOSAL'
         AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
@@ -172,7 +172,7 @@ BEGIN
       WHERE prior_req.msg_type = 'REQUEST'
         AND prior_req.op_id IN ('JL_COMMIT','JL_REJECT')
         AND prior_req.bus_id <> NEW.bus_id
-        AND TRIM(CAST(json_extract(prior_req.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT)) = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal_ref.bus_id') AS TEXT))
+        AND TRIM(CAST(json_extract(prior_req.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT)) = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.proposal.source.source_bus_id') AS TEXT))
     );
 
   SELECT RAISE(ABORT, 'missing_echo_request_bus_id')
@@ -198,26 +198,23 @@ BEGIN
   SELECT RAISE(ABORT, 'invalid_request_payload')
   WHERE NEW.msg_type = 'REQUEST'
     AND NEW.op_id = 'JL_PROPOSAL'
-    AND (
-      COALESCE((json_type(NEW.bus_json, '$.message.contents.ops') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.ops')) > 0), 0)
-      OR COALESCE((json_type(NEW.bus_json, '$.message.contents.patch_intent') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.patch_intent')) > 0), 0)
-    ) = 0;
+    AND json_type(NEW.bus_json, '$.message.contents.make_proposal.body') <> 'object';
 
   SELECT RAISE(ABORT, 'invalid_response_payload')
   WHERE NEW.msg_type = 'RESPONSE'
     AND (
       (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
-        AND COALESCE((json_type(NEW.bus_json, '$.message.contents.ops') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.ops')) > 0), 0) = 0)
+        AND json_type(NEW.bus_json, '$.message.contents.proposal.body') <> 'object')
       OR (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) = '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT'
-        AND json_type(NEW.bus_json, '$.message.contents.result') IS NULL)
+        AND json_type(NEW.bus_json, '$.message.contents.commit.body') <> 'object')
       OR (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) LIKE '%_UNRESOLVED_%'
-        AND COALESCE((json_type(NEW.bus_json, '$.message.contents.required_to_resolve') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.required_to_resolve')) > 0), 0) = 0)
+        AND COALESCE((json_type(NEW.bus_json, '$.message.contents.unresolved.body.required_to_resolve') = 'array' AND json_array_length(json_extract(NEW.bus_json, '$.message.contents.unresolved.body.required_to_resolve')) > 0), 0) = 0)
       OR (CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) LIKE '%_ABEND_%'
-        AND COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.reason_code') AS TEXT)), '') = '')
+        AND COALESCE(TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.abend.body.reason_code') AS TEXT)), '') = '')
     );
 
   SELECT RAISE(ABORT, 'invalid_artifact_completion')
   WHERE NEW.msg_type = 'RESPONSE'
     AND CAST(json_extract(NEW.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_COMMIT'
-    AND json_type(NEW.bus_json, '$.message.contents.result') IS NOT NULL;
+    AND json_type(NEW.bus_json, '$.message.contents.commit') IS NOT NULL OR json_type(NEW.bus_json, '$.message.contents.result') IS NOT NULL;
 END;

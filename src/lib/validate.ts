@@ -43,6 +43,22 @@ const RESPONSE_DOCS_BY_OP_ID: Record<OpId, string[]> = {
   ],
 };
 
+const IO_CONTRACT_DOC_IDS = new Set<string>([
+  "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL",
+  "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT",
+  "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT",
+  "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL",
+  "2PLT_60_IO_CONTRACT_RESPONDER_COMMIT",
+  "2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL",
+  "2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_COMMIT",
+  "2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_REJECT",
+  "2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL",
+  "2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_COMMIT",
+  "2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_REJECT",
+]);
+
+const CONTENT_BLOCK_SOURCE_KINDS = new Set(["CURRENT_MESSAGE", "RECEIVED_BLOCK", "DERIVED_BLOCK", "SYSTEM_INJECTED"]);
+
 function responseTerminalForDocId(docId: string): ResponseTerminal | null {
   if (docId === "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL") return "PROPOSAL";
   if (docId === "2PLT_60_IO_CONTRACT_RESPONDER_COMMIT") return "COMMIT";
@@ -215,46 +231,123 @@ function validateReasonCodeIfPresent(contents: Record<string, unknown>, fieldPat
   contents.reason_code = reasonCode;
 }
 
-function validateRequiredToResolve(contents: Record<string, unknown>): void {
-  if (!Array.isArray(contents.required_to_resolve) || contents.required_to_resolve.length === 0) {
-    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "UNRESOLVED response must include non-empty message.contents.required_to_resolve", {
-      missing: ["message.contents.required_to_resolve"],
+function getContentBlock(contents: Record<string, unknown>, blockName: string): Record<string, unknown> | null {
+  const block = contents[blockName];
+  return isPlainObject(block) ? block : null;
+}
+
+function requireContentBlock(contents: Record<string, unknown>, blockName: string, expectedSourceKind?: string, expectedIoContractDocId?: string): Record<string, unknown> {
+  const block = getContentBlock(contents, blockName);
+  if (!block) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName} block is required`, {
+      missing: [`message.contents.${blockName}`],
     });
   }
-  if (contents.required_to_resolve.some((item) => !isPlainObject(item))) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "message.contents.required_to_resolve must be an array of objects");
+  validateContentBlockFrame(blockName, block, expectedSourceKind, expectedIoContractDocId);
+  return block;
+}
+
+function validateContentBlockFrame(blockName: string, block: Record<string, unknown>, expectedSourceKind?: string, expectedIoContractDocId?: string): void {
+  const source = block.source;
+  if (!isPlainObject(source)) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.source is required`, {
+      missing: [`message.contents.${blockName}.source`],
+    });
+  }
+  const sourceKind = source.source_kind;
+  if (typeof sourceKind !== "string" || !CONTENT_BLOCK_SOURCE_KINDS.has(sourceKind)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source.source_kind is invalid`, {
+      field: `message.contents.${blockName}.source.source_kind`,
+      value: sourceKind,
+    });
+  }
+  if (expectedSourceKind && sourceKind !== expectedSourceKind) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source.source_kind does not match the contract`, {
+      field: `message.contents.${blockName}.source.source_kind`,
+      value: sourceKind,
+      expected: expectedSourceKind,
+    });
+  }
+  const ioContractDocId = source.io_contract_doc_id;
+  if (typeof ioContractDocId !== "string" || !IO_CONTRACT_DOC_IDS.has(ioContractDocId)) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source.io_contract_doc_id is invalid`, {
+      field: `message.contents.${blockName}.source.io_contract_doc_id`,
+      value: ioContractDocId,
+    });
+  }
+  if (expectedIoContractDocId && ioContractDocId !== expectedIoContractDocId) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, `message.contents.${blockName}.source.io_contract_doc_id does not match the contract`, {
+      field: `message.contents.${blockName}.source.io_contract_doc_id`,
+      value: ioContractDocId,
+      expected: expectedIoContractDocId,
+    });
+  }
+  if (sourceKind === "RECEIVED_BLOCK") {
+    const sourceBusId = source.source_bus_id;
+    const sourceBlockName = source.source_block_name;
+    const sourceContentHash = source.source_content_hash;
+    const missing: string[] = [];
+    if (typeof sourceBusId !== "string" || sourceBusId.trim() === "") missing.push(`message.contents.${blockName}.source.source_bus_id`);
+    if (typeof sourceBlockName !== "string" || sourceBlockName.trim() === "") missing.push(`message.contents.${blockName}.source.source_block_name`);
+    if (typeof sourceContentHash !== "string" || sourceContentHash.trim() === "") missing.push(`message.contents.${blockName}.source.source_content_hash`);
+    if (missing.length) {
+      throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.source is missing received-block source fields`, { missing });
+    }
+    source.source_bus_id = String(sourceBusId).trim();
+    source.source_block_name = String(sourceBlockName).trim();
+    source.source_content_hash = String(sourceContentHash).trim();
+  }
+  if (!isPlainObject(block.body)) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.body is required and must be an object`, {
+      missing: [`message.contents.${blockName}.body`],
+    });
+  }
+  if (!Array.isArray(block.attached)) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.attached is required and must be an array`, {
+      missing: [`message.contents.${blockName}.attached`],
+    });
   }
 }
 
-function validateProposalRefForTargetRequest(opId: OpId, contents: Record<string, unknown>): void {
+function validateRequiredToResolveBlock(contents: Record<string, unknown>): void {
+  const unresolved = requireContentBlock(contents, "unresolved", "CURRENT_MESSAGE");
+  const body = unresolved.body as Record<string, unknown>;
+  if (!Array.isArray(body.required_to_resolve) || body.required_to_resolve.length === 0) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "UNRESOLVED response must include non-empty message.contents.unresolved.body.required_to_resolve", {
+      missing: ["message.contents.unresolved.body.required_to_resolve"],
+    });
+  }
+  if (body.required_to_resolve.some((item) => !isPlainObject(item))) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_BODY, "message.contents.unresolved.body.required_to_resolve must be an array of objects");
+  }
+}
+
+function validateProposalBlockForTargetRequest(opId: OpId, contents: Record<string, unknown>): void {
   if (opId !== "JL_COMMIT" && opId !== "JL_REJECT") return;
-  const ref = contents.proposal_ref;
-  if (!isPlainObject(ref)) {
-    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "JL_COMMIT/JL_REJECT request must include message.contents.proposal_ref", {
-      missing: ["message.contents.proposal_ref"],
+  requireContentBlock(contents, "make_proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
+  const proposal = requireContentBlock(contents, "proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
+  const source = proposal.source as Record<string, unknown>;
+  const sourceTerminal = source.source_terminal;
+  if (source.source_block_name !== "proposal" || sourceTerminal !== "PROPOSAL") {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.proposal.source must target a PROPOSAL content block from a PROPOSAL response", {
       op_id: opId,
+      expected: { source_block_name: "proposal", source_terminal: "PROPOSAL", io_contract_doc_id: "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL" },
+      actual: { source_block_name: source.source_block_name, source_terminal: sourceTerminal, io_contract_doc_id: source.io_contract_doc_id },
     });
   }
-  const busId = ref.bus_id;
-  const sourceOpId = ref.source_op_id;
-  const sourceTerminal = ref.source_terminal;
-  const resolutionMode = ref.resolution_mode;
-  const missing: string[] = [];
-  if (typeof busId !== "string" || busId.trim() === "") missing.push("message.contents.proposal_ref.bus_id");
-  if (typeof sourceOpId !== "string" || sourceOpId.trim() === "") missing.push("message.contents.proposal_ref.source_op_id");
-  if (typeof sourceTerminal !== "string" || sourceTerminal.trim() === "") missing.push("message.contents.proposal_ref.source_terminal");
-  if (typeof resolutionMode !== "string" || resolutionMode.trim() === "") missing.push("message.contents.proposal_ref.resolution_mode");
-  if (missing.length) {
-    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "message.contents.proposal_ref is missing required explicit target fields", { missing, op_id: opId });
+  if (opId === "JL_COMMIT") {
+    const commitRequest = requireContentBlock(contents, "commit_request", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT");
+    const body = commitRequest.body as Record<string, unknown>;
+    if (body.target_block_name !== "proposal") {
+      throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.commit_request.body.target_block_name must be proposal", { op_id: opId, target_block_name: body.target_block_name });
+    }
+  } else {
+    const rejectRequest = requireContentBlock(contents, "reject_request", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT");
+    const body = rejectRequest.body as Record<string, unknown>;
+    if (body.target_block_name !== "proposal") {
+      throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.reject_request.body.target_block_name must be proposal", { op_id: opId, target_block_name: body.target_block_name });
+    }
   }
-  if (sourceOpId !== "JL_PROPOSAL" || sourceTerminal !== "PROPOSAL" || resolutionMode !== "EXPLICIT_BUS_ID") {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_PROPOSAL_REF, "message.contents.proposal_ref must target an explicit JL_PROPOSAL/PROPOSAL response bus_id", {
-      op_id: opId,
-      expected: { source_op_id: "JL_PROPOSAL", source_terminal: "PROPOSAL", resolution_mode: "EXPLICIT_BUS_ID" },
-      actual: { source_op_id: sourceOpId, source_terminal: sourceTerminal, resolution_mode: resolutionMode },
-    });
-  }
-  ref.bus_id = String(busId).trim();
 }
 
 function validateResponseCorrelation(contents: Record<string, unknown>): void {
@@ -275,10 +368,10 @@ function validateResponseCorrelation(contents: Record<string, unknown>): void {
 
 function validateNonCommitArtifactCompletionGate(terminal: ResponseTerminal, contents: Record<string, unknown>): void {
   if (terminal === "COMMIT") return;
-  if (contents.result != null) {
-    throw new HttpError(400, API_ERROR_CODES.INVALID_ARTIFACT_COMPLETION, "Only COMMIT may carry message.contents.result or claim deterministic artifact completion", {
+  if (contents.commit != null || contents.result != null) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_ARTIFACT_COMPLETION, "Only COMMIT may carry message.contents.commit or legacy message.contents.result", {
       terminal,
-      field: "message.contents.result",
+      field: contents.commit != null ? "message.contents.commit" : "message.contents.result",
     });
   }
 }
@@ -294,16 +387,10 @@ function validateRequestProfile(msgType: BusMessageType, opId: OpId, contents: R
   }
 
   if (opId === "JL_PROPOSAL") {
-    const hasOps = Array.isArray(contents.ops) && contents.ops.length > 0;
-    const hasPatchIntent = Array.isArray(contents.patch_intent) && contents.patch_intent.length > 0;
-    if (!hasOps && !hasPatchIntent) {
-      throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "JL_PROPOSAL request must include non-empty message.contents.ops or non-empty message.contents.patch_intent", {
-        missing_any_of: ["message.contents.ops", "message.contents.patch_intent"],
-      });
-    }
+    requireContentBlock(contents, "make_proposal", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
   }
 
-  validateProposalRefForTargetRequest(opId, contents);
+  validateProposalBlockForTargetRequest(opId, contents);
 }
 
 function validateResponseProfile(opId: OpId, terminal: ResponseTerminal, contents: Record<string, unknown>): void {
@@ -311,31 +398,33 @@ function validateResponseProfile(opId: OpId, terminal: ResponseTerminal, content
   validateNonCommitArtifactCompletionGate(terminal, contents);
 
   switch (terminal) {
-    case "PROPOSAL":
-      if (!Array.isArray(contents.ops) || contents.ops.length === 0) {
-        throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "PROPOSAL response must include non-empty message.contents.ops", {
-          missing: ["message.contents.ops"],
-        });
-      }
+    case "PROPOSAL": {
+      requireContentBlock(contents, "make_proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
+      const proposal = requireContentBlock(contents, "proposal", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
+      const body = proposal.body as Record<string, unknown>;
+      if (body.ops != null) body.ops = validateOpsArray(body.ops);
       break;
+    }
     case "COMMIT":
-      if (contents.result == null || contents.result === "") {
-        throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "COMMIT response must include message.contents.result", {
-          missing: ["message.contents.result"],
-        });
-      }
+      requireContentBlock(contents, "make_proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL");
+      requireContentBlock(contents, "proposal", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL");
+      requireContentBlock(contents, "commit_request", "RECEIVED_BLOCK", "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT");
+      requireContentBlock(contents, "commit", "CURRENT_MESSAGE", "2PLT_60_IO_CONTRACT_RESPONDER_COMMIT");
       break;
     case "UNRESOLVED":
-      validateRequiredToResolve(contents);
+      validateRequiredToResolveBlock(contents);
       break;
-    case "ABEND":
-      if (contents.reason_code == null || contents.reason_code === "") {
-        throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "ABEND response must include message.contents.reason_code", {
-          missing: ["message.contents.reason_code"],
+    case "ABEND": {
+      const abend = requireContentBlock(contents, "abend", "CURRENT_MESSAGE");
+      const body = abend.body as Record<string, unknown>;
+      if (body.reason_code == null || body.reason_code === "") {
+        throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, "ABEND response must include message.contents.abend.body.reason_code", {
+          missing: ["message.contents.abend.body.reason_code"],
         });
       }
-      validateReasonCodeIfPresent(contents);
+      validateReasonCodeIfPresent(body, "message.contents.abend.body.reason_code");
       break;
+    }
   }
 }
 
@@ -433,8 +522,10 @@ export function validateBusLoose(bus: any): {
   validateIoMode((bus.message as any).io);
 
   const contents = (bus.message as any).contents as Record<string, unknown>;
-  if (contents.ops != null) {
-    contents.ops = validateOpsArray(contents.ops);
+  const makeProposalBlock = getContentBlock(contents, "make_proposal");
+  if (makeProposalBlock && isPlainObject(makeProposalBlock.body)) {
+    const body = makeProposalBlock.body as Record<string, unknown>;
+    if (body.ops != null) body.ops = validateOpsArray(body.ops);
   }
   validateProfileSelection(contents, op_id);
   validateReasonCodeIfPresent(contents);

@@ -121,16 +121,32 @@ function requestEnvelope(
   };
 }
 
-function proposalRequest(bus_id: string, owner: string, lane_id: string, request_id: string, bus_ts: number): any {
-  return requestEnvelope(bus_id, "JL_PROPOSAL", owner, lane_id, request_id, {
-    profile_doc_id: "2PLT_50_PROFILE_JUDGEMENT_LOG_PROPOSAL",
+
+function currentBlock(io_contract_doc_id: string, body: Record<string, unknown> = {}): Record<string, unknown> {
+  return { source: { source_kind: "CURRENT_MESSAGE", io_contract_doc_id }, body, attached: [] };
+}
+
+function receivedBlock(io_contract_doc_id: string, source_bus_id: string, source_block_name: string, body: Record<string, unknown> = {}, source_terminal?: string): Record<string, unknown> {
+  const source: Record<string, unknown> = { source_kind: "RECEIVED_BLOCK", io_contract_doc_id, source_bus_id, source_block_name, source_content_hash: "diag_materialized_source_hash" };
+  if (source_terminal) source.source_terminal = source_terminal;
+  return { source, body, attached: [] };
+}
+
+function makeProposalBody(task: string): Record<string, unknown> {
+  return {
     patch_intent: [{
       intent_id: "PI_DIAG_TRIGGER_SMOKE",
       target_hint: "CODEX/docs/2PLT_40_TARGET_RESOLUTION_PHASE1_ANNEX.json",
       operation: "diag_trigger_smoke",
       required_authority: "2PLT_40_TARGET_RESOLUTION_PHASE1_ANNEX",
     }],
-    task_brief: "HTTP /diag trigger smoke setup",
+    task_brief: task,
+  };
+}
+
+function proposalRequest(bus_id: string, owner: string, lane_id: string, request_id: string, bus_ts: number): any {
+  return requestEnvelope(bus_id, "JL_PROPOSAL", owner, lane_id, request_id, {
+    make_proposal: currentBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", makeProposalBody("HTTP /diag trigger smoke setup")),
   }, bus_ts);
 }
 
@@ -144,15 +160,15 @@ function proposalResponse(
   bus_ts: number,
 ): any {
   const contents: Record<string, unknown> = {
-    profile_doc_id: "2PLT_50_PROFILE_JUDGEMENT_LOG_PROPOSAL",
     meta: { echo_request_bus_id },
+    make_proposal: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", echo_request_bus_id, "make_proposal"),
   };
   if (terminal === "PROPOSAL") {
-    contents.ops = [{ kind: "fs.write", path: "scratch/diag/proposal.txt", content: "diag trigger setup" }];
+    contents.proposal = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", { ops: [{ kind: "fs.write", path: "scratch/diag/proposal.txt", content: "diag trigger setup" }] });
   } else if (terminal === "UNRESOLVED") {
-    contents.required_to_resolve = [{ field: "diag", reason: "trigger_probe" }];
+    contents.unresolved = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_UNRESOLVED_FROM_JL_PROPOSAL", { required_to_resolve: [{ field: "diag", reason: "trigger_probe" }] });
   } else {
-    contents.reason_code = "PROTOCOL_VIOLATION";
+    contents.abend = currentBlock("2PLT_60_IO_CONTRACT_RESPONDER_ABEND_FROM_JL_PROPOSAL", { reason_code: "PROTOCOL_VIOLATION" });
   }
   return {
     schema_id: "2PLT_BUS/v1",
@@ -181,19 +197,15 @@ function targetRequest(
   owner: string,
   lane_id: string,
   request_id: string,
-  proposalRefBusId: string,
+  proposalSourceBusId: string,
   bus_ts: number,
 ): any {
-  const profile = op_id === "JL_COMMIT" ? "2PLT_50_PROFILE_JUDGEMENT_LOG_COMMIT" : "2PLT_50_PROFILE_JUDGEMENT_LOG_REJECT";
+  const currentDoc = op_id === "JL_COMMIT" ? "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT" : "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT";
+  const targetBlock = op_id === "JL_COMMIT" ? "commit_request" : "reject_request";
   return requestEnvelope(bus_id, op_id, owner, lane_id, request_id, {
-    profile_doc_id: profile,
-    proposal_ref: {
-      bus_id: proposalRefBusId,
-      source_op_id: "JL_PROPOSAL",
-      source_terminal: "PROPOSAL",
-      resolution_mode: "EXPLICIT_BUS_ID",
-    },
-    task_brief: "HTTP /diag trigger smoke target",
+    make_proposal: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", `ORIGIN_${proposalSourceBusId}`, "make_proposal"),
+    proposal: receivedBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", proposalSourceBusId, "proposal", {}, "PROPOSAL"),
+    [targetBlock]: currentBlock(currentDoc, { target_block_name: "proposal", task_brief: "HTTP /diag trigger smoke target" }),
   }, bus_ts);
 }
 
