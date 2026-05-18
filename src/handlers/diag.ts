@@ -238,14 +238,14 @@ function targetRequest(
   op_id: "JL_COMMIT" | "JL_REJECT",
   owner: string,
   lane_id: string,
-  request_id: string,
+  rootRequestBusId: string,
   proposalSourceBusId: string,
   bus_ts: number,
 ): any {
   const currentDoc = op_id === "JL_COMMIT" ? "2PLT_60_IO_CONTRACT_REQUESTER_JL_COMMIT" : "2PLT_60_IO_CONTRACT_REQUESTER_JL_REJECT";
   const targetBlock = op_id === "JL_COMMIT" ? "JL_COMMIT" : "JL_REJECT";
-  return requestEnvelope(bus_id, op_id, owner, lane_id, request_id, {
-    JL_PROPOSAL: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", `ORIGIN_${proposalSourceBusId}`, "JL_PROPOSAL"),
+  return requestEnvelope(bus_id, op_id, owner, lane_id, rootRequestBusId, {
+    JL_PROPOSAL: receivedBlock("2PLT_60_IO_CONTRACT_REQUESTER_JL_PROPOSAL", rootRequestBusId, "JL_PROPOSAL"),
     PROPOSAL: receivedBlock("2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL", proposalSourceBusId, "PROPOSAL", {}),
     [targetBlock]: currentBlock(currentDoc, bus_id, targetBlock, { task_brief: "HTTP /diag trigger smoke target" }),
   }, bus_ts);
@@ -265,30 +265,30 @@ function phase1aCases(run_id: string, bus_ts: number): TriggerCase[] {
   };
 
   let s = setupPair("P1A_P01");
-  add("P01_valid_target", "OK", targetRequest(`BUS_DIAG_P1A_P01_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.rid, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
+  add("P01_valid_target", "OK", targetRequest(`BUS_DIAG_P1A_P01_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   add("N01_missing_target", "proposal_ref_not_found", targetRequest(`BUS_DIAG_P1A_N01_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, `REQ_DIAG_P1A_N01_${run_id}`, `BUS_DIAG_P1A_N01_MISSING_${run_id}`, bus_ts));
 
   s = setupPair("P1A_N02");
-  add("N02_target_not_response", "proposal_ref_target_not_response", targetRequest(`BUS_DIAG_P1A_N02_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.rid, s.preq.bus_id, bus_ts), [s.preq]);
+  add("N02_target_not_response", "proposal_ref_target_not_response", targetRequest(`BUS_DIAG_P1A_N02_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.preq.bus_id, s.preq.bus_id, bus_ts), [s.preq]);
 
   s = setupPair("P1A_N03", WORKER, LANE, undefined);
-  add("N03_terminal_unresolved", "proposal_ref_target_terminal_mismatch", targetRequest(`BUS_DIAG_P1A_N03_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.rid, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
+  add("N03_terminal_unresolved", "proposal_ref_target_terminal_mismatch", targetRequest(`BUS_DIAG_P1A_N03_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   s = setupPair("P1A_N04", WORKER, LANE, undefined);
-  add("N04_terminal_abend", "proposal_ref_target_terminal_mismatch", targetRequest(`BUS_DIAG_P1A_N04_REQ_REJECT_${run_id}`, "JL_REJECT", WORKER, LANE, s.rid, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
+  add("N04_terminal_abend", "proposal_ref_target_terminal_mismatch", targetRequest(`BUS_DIAG_P1A_N04_REQ_REJECT_${run_id}`, "JL_REJECT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   s = setupPair("P1A_N05", WORKER, OTHER_LANE);
-  add("N05_lane_mismatch", "proposal_ref_lane_mismatch", targetRequest(`BUS_DIAG_P1A_N05_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.rid, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
+  add("N05_lane_mismatch", "proposal_ref_lane_mismatch", targetRequest(`BUS_DIAG_P1A_N05_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   s = setupPair("P1A_N06", WORKER, LANE, `REQ_DIAG_P1A_N06_OTHER_${run_id}`);
   add("N06_request_id_mismatch", "proposal_ref_request_id_mismatch", targetRequest(`BUS_DIAG_P1A_N06_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, `REQ_DIAG_P1A_N06_${run_id}`, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   s = setupPair("P1A_N07", OTHER_WORKER);
-  add("N07_flow_owner_mismatch", "proposal_ref_flow_owner_mismatch", targetRequest(`BUS_DIAG_P1A_N07_REQ_REJECT_${run_id}`, "JL_REJECT", WORKER, LANE, s.rid, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
+  add("N07_flow_owner_mismatch", "proposal_ref_flow_owner_mismatch", targetRequest(`BUS_DIAG_P1A_N07_REQ_REJECT_${run_id}`, "JL_REJECT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   s = setupPair("P1A_N08", WORKER, LANE, undefined, "PROPOSAL", true);
-  add("N08_origin_invalid", "proposal_ref_origin_request_invalid", targetRequest(`BUS_DIAG_P1A_N08_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.rid, s.presp.bus_id, bus_ts), [s.presp]);
+  add("N08_origin_invalid", "proposal_ref_origin_request_invalid", targetRequest(`BUS_DIAG_P1A_N08_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, `BUS_DIAG_P1A_N08_UNKNOWN_ROOT_${run_id}`, s.presp.bus_id, bus_ts), [s.presp]);
 
   return cases;
 }
@@ -306,7 +306,7 @@ function phase1bCases(run_id: string, bus_ts: number): TriggerCase[] {
   };
 
   let s = setup("P01");
-  add("P01_valid_first_consumer", "OK", targetRequest(`BUS_DIAG_P1B_P01_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.rid, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
+  add("P01_valid_first_consumer", "OK", targetRequest(`BUS_DIAG_P1B_P01_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   for (const [caseId, firstOp, secondOp] of [
     ["N01", "JL_COMMIT", "JL_COMMIT"],
@@ -315,8 +315,8 @@ function phase1bCases(run_id: string, bus_ts: number): TriggerCase[] {
     ["N04", "JL_REJECT", "JL_REJECT"],
   ] as const) {
     s = setup(caseId);
-    const first = targetRequest(`BUS_DIAG_P1B_${caseId}_REQ_FIRST_${firstOp}_${run_id}`, firstOp, WORKER, LANE, s.rid, s.presp.bus_id, bus_ts);
-    const second = targetRequest(`BUS_DIAG_P1B_${caseId}_REQ_SECOND_${secondOp}_${run_id}`, secondOp, WORKER, LANE, s.rid, s.presp.bus_id, bus_ts);
+    const first = targetRequest(`BUS_DIAG_P1B_${caseId}_REQ_FIRST_${firstOp}_${run_id}`, firstOp, WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts);
+    const second = targetRequest(`BUS_DIAG_P1B_${caseId}_REQ_SECOND_${secondOp}_${run_id}`, secondOp, WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts);
     add(`${caseId}_already_consumed`, "proposal_ref_already_consumed", second, [s.preq, s.presp, first]);
   }
 

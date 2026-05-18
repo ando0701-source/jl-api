@@ -596,9 +596,23 @@ export function validateBusLoose(bus: any): {
     throw new HttpError(400, API_ERROR_CODES.INVALID_MESSAGE_SCHEMA_ID, `message.schema_id must be ${MESSAGE_SCHEMA_ID}`);
   }
 
-  const op_id = validateOpIdLiteral(bus.message.op_id, "message.op_id");
-  const msg_type = msgTypeForOpId(op_id);
-  // Phase1E-2F-6X-8: message.msg_type is derived from message.op_id and removed from stored bus_json.
+  let op_id = validateOpIdLiteral(bus.message.op_id, "message.op_id");
+  // Phase1E-2F-6X-10a compatibility: canonical messages derive msg_type from
+  // message.op_id, but older runner fixtures may still send message.msg_type=RESPONSE
+  // with a requester op_id.  In that case canonicalize message.op_id from the
+  // responder IO contract before validation/storage.
+  let msg_type: BusMessageType = msgTypeForOpId(op_id);
+  if (typeof (bus.message as any).msg_type === "string" && isBusMessageType((bus.message as any).msg_type)) {
+    msg_type = (bus.message as any).msg_type as BusMessageType;
+  }
+  if (msg_type === MESSAGE_TYPES.RESPONSE) {
+    const terminalFromDoc = responseTerminalForDocId(doc_id);
+    if (terminalFromDoc) {
+      op_id = terminalFromDoc as OpId;
+      (bus.message as any).op_id = op_id;
+    }
+  }
+  // Phase1E-2F-6X-8: message.msg_type is derived and removed from stored bus_json.
   delete (bus.message as any).msg_type;
   const flow_owner_id = validateOwnerId(String((bus.message as any).owner_id), "message.owner_id");
   const lane_id = validateLaneId(String((bus.message as any).lane_id), "message.lane_id");
