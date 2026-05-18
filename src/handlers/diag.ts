@@ -272,10 +272,10 @@ function phase1aCases(run_id: string, bus_ts: number): TriggerCase[] {
   s = setupPair("P1A_N02");
   add("N02_target_not_response", "proposal_ref_target_not_response", targetRequest(`BUS_DIAG_P1A_N02_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.preq.bus_id, s.preq.bus_id, bus_ts), [s.preq]);
 
-  s = setupPair("P1A_N03", WORKER, LANE, undefined);
+  s = setupPair("P1A_N03", WORKER, LANE, undefined, "UNRESOLVED");
   add("N03_terminal_unresolved", "proposal_ref_target_terminal_mismatch", targetRequest(`BUS_DIAG_P1A_N03_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
-  s = setupPair("P1A_N04", WORKER, LANE, undefined);
+  s = setupPair("P1A_N04", WORKER, LANE, undefined, "ABEND");
   add("N04_terminal_abend", "proposal_ref_target_terminal_mismatch", targetRequest(`BUS_DIAG_P1A_N04_REQ_REJECT_${run_id}`, "JL_REJECT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   s = setupPair("P1A_N05", WORKER, OTHER_LANE);
@@ -288,7 +288,7 @@ function phase1aCases(run_id: string, bus_ts: number): TriggerCase[] {
   add("N07_flow_owner_mismatch", "proposal_ref_flow_owner_mismatch", targetRequest(`BUS_DIAG_P1A_N07_REQ_REJECT_${run_id}`, "JL_REJECT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   s = setupPair("P1A_N08", WORKER, LANE, undefined, "PROPOSAL", true);
-  add("N08_origin_invalid", "proposal_ref_origin_request_invalid", targetRequest(`BUS_DIAG_P1A_N08_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, `BUS_DIAG_P1A_N08_UNKNOWN_ROOT_${run_id}`, s.presp.bus_id, bus_ts), [s.presp]);
+  add("N08_origin_invalid", "proposal_ref_origin_request_invalid", targetRequest(`BUS_DIAG_P1A_N08_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, `BUS_DIAG_P1A_N08_UNKNOWN_ORIGIN_${run_id}`, s.presp.bus_id, bus_ts), [s.presp]);
 
   return cases;
 }

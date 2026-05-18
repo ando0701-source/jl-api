@@ -633,6 +633,15 @@ export function validateBusLoose(bus: any): {
   // bus_id. Legacy response metadata block is ignored and removed before storing.
   delete (contents as any).meta;
   const responseTerminal = validateContractDocForMessage(doc_id, msg_type, op_id);
+  // Check artifact-completion boundary before sequence exactness so negative
+  // cases that deliberately include a forbidden COMMIT block under a non-COMMIT
+  // terminal fail on the intended gate.
+  if (msg_type === MESSAGE_TYPES.RESPONSE && responseTerminal !== "COMMIT" && (contents as any).COMMIT != null) {
+    throw new HttpError(400, API_ERROR_CODES.INVALID_ARTIFACT_COMPLETION, "Only COMMIT may carry message.contents.COMMIT", {
+      terminal: responseTerminal,
+      field: "message.contents.COMMIT",
+    });
+  }
   const sourceRequestOpId = msg_type === MESSAGE_TYPES.RESPONSE ? responseRequestOpIdForDocId(doc_id) : null;
   const sequenceOpId = sourceRequestOpId ?? op_id;
   const expectedSequence = expectedContentBlockSequence(msg_type, sequenceOpId as OpId, responseTerminal);

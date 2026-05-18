@@ -37,6 +37,7 @@ export async function handleDequeue(req: Request, env: Env): Promise<Response> {
   if (!ownerId) throw new HttpError(400, API_ERROR_CODES.MISSING_OWNER_ID, "owner_id is required");
 
   const claimedBy = url.searchParams.get(QUERY_PARAM_KEYS.CLAIMED_BY) || ownerId;
+  const expectedBusId = (url.searchParams.get(QUERY_PARAM_KEYS.EXPECTED_BUS_ID) || "").trim();
   const now = nowEpochSec();
 
   const debugEnabled = isDebugLiteEnabled(req, env);
@@ -125,6 +126,60 @@ if (Number.isFinite(ttlSec) && ttlSec > 0) {
   }
 }
 
+
+
+  // Optional targeted dequeue: runner/test clients can request one exact bus_id
+  // so stale PENDING rows for the same owner do not get claimed/finalized as
+  // unrelated evidence. This preserves normal FIFO behavior when omitted.
+  if (expectedBusId) {
+    const row = await env.DB.prepare(
+      `UPDATE bus_messages
+       SET claimed_by = ?, claimed_at = ?
+       WHERE bus_id = ?
+         AND q_state = '${BUS_QUEUE_STATES.PENDING}'
+         AND to_owner_id = ?
+         AND claimed_by IS NULL
+       RETURNING bus_id,bus_ts,q_state,from_owner_id,to_owner_id,claimed_by,claimed_at,done_at,
+                 message_schema_id,msg_type,op_id,flow_owner_id,lane_id,request_id,bus_json,inserted_at`
+    ).bind(claimedBy, now, expectedBusId, ownerId).first();
+
+    if (!row) {
+      await dbg(env, debugEnabled, DEBUG_EVENT_KIND.DEQUEUE_NOT_FOUND, { owner_id: ownerId, expected_bus_id: expectedBusId });
+      return jsonResponse({ ok: true, found: false, expected_bus_id: expectedBusId });
+    }
+
+    const busId = String((row as any).bus_id);
+    await dbg(env, debugEnabled, DEBUG_EVENT_KIND.DEQUEUE_CLAIMED, { owner_id: ownerId, bus_id: busId, claimed_by: claimedBy, expected_bus_id: expectedBusId });
+    await patchBusJsonClaim(env, busId, claimedBy, now);
+
+    let busObj: any = null;
+    try {
+      busObj = JSON.parse(String((row as any).bus_json));
+      busObj.claimed_by = claimedBy;
+      busObj.claimed_at = now;
+    } catch (_) {
+      busObj = null;
+    }
+
+    const contentJson = busObj ? JSON.stringify(busObj) : String((row as any).bus_json ?? "");
+    await appendBusAuditBestEffort(env, {
+      io: "RECEIVED",
+      bus_id: busId,
+      actor_owner_id: String((row as any).to_owner_id),
+      peer_owner_id: (row as any).from_owner_id != null ? String((row as any).from_owner_id) : null,
+      content_json: contentJson,
+      captured_at: now,
+      attempt_key: (row as any).claimed_at ?? now,
+    });
+
+    return jsonResponse({
+      ok: true,
+      found: true,
+      row,
+      bus: busObj,
+      expected_bus_id: expectedBusId,
+    });
+  }
 
 // Try single-statement claim+return first (SQLite RETURNING)
   try {
