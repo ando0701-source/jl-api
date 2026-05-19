@@ -69,17 +69,6 @@ BEGIN
         AND p.msg_type <> 'RESPONSE'
     );
 
-  SELECT RAISE(ABORT, 'proposal_ref_target_op_mismatch')
-  WHERE NEW.msg_type = 'REQUEST'
-    AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
-    AND EXISTS (
-      SELECT 1
-      FROM bus_messages p
-      WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
-        AND p.msg_type = 'RESPONSE'
-        AND p.op_id <> 'PROPOSAL'
-    );
-
   SELECT RAISE(ABORT, 'proposal_ref_target_terminal_mismatch')
   WHERE NEW.msg_type = 'REQUEST'
     AND NEW.op_id IN ('JL_COMMIT','JL_REJECT')
@@ -88,9 +77,18 @@ BEGIN
       FROM bus_messages p
       WHERE p.bus_id = TRIM(CAST(json_extract(NEW.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT))
         AND p.msg_type = 'RESPONSE'
-        AND p.op_id = 'PROPOSAL'
-        AND CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
+        AND (
+          p.op_id <> 'PROPOSAL'
+          OR CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL'
+        )
     );
+
+  -- The response-terminal storage model uses p.op_id as the terminal
+  -- (PROPOSAL/COMMIT/UNRESOLVED/ABEND).  Non-PROPOSAL response targets are
+  -- therefore terminal mismatches above; this legacy code remains unreachable
+  -- unless a future storage model separates source operation from terminal.
+  SELECT RAISE(ABORT, 'proposal_ref_target_op_mismatch')
+  WHERE 0;
 
   SELECT RAISE(ABORT, 'proposal_ref_flow_owner_mismatch')
   WHERE NEW.msg_type = 'REQUEST'
