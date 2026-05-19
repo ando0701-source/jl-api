@@ -370,7 +370,14 @@ function validateContentBlockFrame(blockName: string, block: Record<string, unkn
   if (missing.length) {
     throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName} is missing block origin fields`, { missing });
   }
-  block.bus_id = String(blockBusId).trim();
+  const blockBusIdText = String(blockBusId).trim();
+  if (/^<[^>]+>$/.test(blockBusIdText)) {
+    throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.bus_id must be materialized before enqueue`, {
+      missing: [`message.contents.${blockName}.bus_id`],
+      value: blockBusIdText,
+    });
+  }
+  block.bus_id = blockBusIdText;
   block.content_hash = String(blockContentHash).trim();
   if (!isPlainObject(block.body)) {
     throw new HttpError(400, API_ERROR_CODES.MISSING_FIELDS, `message.contents.${blockName}.body is required and must be an object`, {
