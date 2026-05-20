@@ -1,6 +1,6 @@
 -- 1004_v_proposal_ref_resolution.sql
 -- Optional diagnostic view: resolve JL_COMMIT/JL_REJECT REQUEST.contents.PROPOSAL.bus_id
--- to the target JL_PROPOSAL/PROPOSAL RESPONSE, echoed origin REQUEST, and Phase1B one-shot consumption status.
+-- to the target PROPOSAL RESPONSE, echoed origin REQUEST, and Phase1B one-shot consumption status.
 -- One object per migration file: v_proposal_ref_resolution.
 -- Target: Cloudflare D1 (SQLite)
 
@@ -51,7 +51,7 @@ SELECT
     WHEN COALESCE(TRIM(CAST(json_extract(r.bus_json, '$.message.contents.PROPOSAL.bus_id') AS TEXT)), '') = '' THEN 'PROPOSAL_REF_NOT_FOUND'
     WHEN p.bus_id IS NULL THEN 'PROPOSAL_REF_NOT_FOUND'
     WHEN p.msg_type <> 'RESPONSE' THEN 'PROPOSAL_REF_TARGET_NOT_RESPONSE'
-    WHEN p.op_id <> 'PROPOSAL' THEN 'PROPOSAL_REF_TARGET_OP_MISMATCH'
+    WHEN p.op_id <> 'PROPOSAL' THEN 'PROPOSAL_REF_TARGET_TERMINAL_MISMATCH'
     WHEN CAST(json_extract(p.bus_json, '$.doc_id') AS TEXT) <> '2PLT_60_IO_CONTRACT_RESPONDER_PROPOSAL' THEN 'PROPOSAL_REF_TARGET_TERMINAL_MISMATCH'
     WHEN p.flow_owner_id <> r.flow_owner_id THEN 'PROPOSAL_REF_FLOW_OWNER_MISMATCH'
     WHEN p.lane_id <> r.lane_id THEN 'PROPOSAL_REF_LANE_MISMATCH'

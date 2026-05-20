@@ -94,21 +94,15 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
     );
   }
 
-  if (target.op_id !== OP_IDS.PROPOSAL) {
-    rejectProposalRef(
-      FAILURE_CODES.PROPOSAL_REF_TARGET_OP_MISMATCH,
-      "message.contents.PROPOSAL.bus_id must target a PROPOSAL response",
-      x,
-      { proposal_ref_bus_id: proposalRefBusId, target_op_id: target.op_id }
-    );
-  }
-
-  if (target.contract_doc_id !== PROPOSAL_RESPONSE_DOC_ID) {
+  // In the response-terminal storage model, target.op_id is the terminal
+  // (PROPOSAL/COMMIT/UNRESOLVED/ABEND).  Any non-PROPOSAL response target is
+  // therefore a terminal mismatch, not a source-op mismatch.
+  if (target.op_id !== OP_IDS.PROPOSAL || target.contract_doc_id !== PROPOSAL_RESPONSE_DOC_ID) {
     rejectProposalRef(
       FAILURE_CODES.PROPOSAL_REF_TARGET_TERMINAL_MISMATCH,
       "message.contents.PROPOSAL.bus_id must target a PROPOSAL response contract",
       x,
-      { proposal_ref_bus_id: proposalRefBusId, target_contract_doc_id: target.contract_doc_id }
+      { proposal_ref_bus_id: proposalRefBusId, target_op_id: target.op_id, target_contract_doc_id: target.contract_doc_id }
     );
   }
 
@@ -133,9 +127,9 @@ export async function validateProposalRefTargetPreflight(env: Env, x: ValidatedB
   if (target.request_id !== x.request_id) {
     rejectProposalRef(
       FAILURE_CODES.PROPOSAL_REF_REQUEST_ID_MISMATCH,
-      "message.contents.PROPOSAL.bus_id must target a proposal response with the same request_id",
+      "message.contents.PROPOSAL.bus_id must target a proposal response with the same root request bus_id (message.contents.JL_PROPOSAL.bus_id)",
       x,
-      { proposal_ref_bus_id: proposalRefBusId, target_request_id: target.request_id }
+      { proposal_ref_bus_id: proposalRefBusId, target_request_id: target.request_id, request_root_bus_id: x.request_id }
     );
   }
 

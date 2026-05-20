@@ -282,7 +282,8 @@ function phase1aCases(run_id: string, bus_ts: number): TriggerCase[] {
   add("N05_lane_mismatch", "proposal_ref_lane_mismatch", targetRequest(`BUS_DIAG_P1A_N05_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
 
   s = setupPair("P1A_N06", WORKER, LANE, `REQ_DIAG_P1A_N06_OTHER_${run_id}`);
-  add("N06_request_id_mismatch", "proposal_ref_request_id_mismatch", targetRequest(`BUS_DIAG_P1A_N06_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, `REQ_DIAG_P1A_N06_${run_id}`, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
+  const n06AltRoot = proposalRequest(`BUS_DIAG_P1A_N06_REQ_OTHER_ROOT_${run_id}`, WORKER, LANE, `REQ_DIAG_P1A_N06_${run_id}`, bus_ts);
+  add("N06_request_id_mismatch", "proposal_ref_request_id_mismatch", targetRequest(`BUS_DIAG_P1A_N06_REQ_COMMIT_${run_id}`, "JL_COMMIT", WORKER, LANE, n06AltRoot.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp, n06AltRoot]);
 
   s = setupPair("P1A_N07", OTHER_WORKER);
   add("N07_flow_owner_mismatch", "proposal_ref_flow_owner_mismatch", targetRequest(`BUS_DIAG_P1A_N07_REQ_REJECT_${run_id}`, "JL_REJECT", WORKER, LANE, s.preq.bus_id, s.presp.bus_id, bus_ts), [s.preq, s.presp]);
